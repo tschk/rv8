@@ -54,9 +54,6 @@ pub mod networking;
 // Storage subsystems
 pub mod storage;
 
-// Mono sync export/import adapters
-pub mod rv8_sync;
-
 // Inter-process communication
 pub mod ipc;
 
@@ -73,10 +70,6 @@ pub use js::{JsEngine, JsValue};
 pub use networking::{NetworkManager, Request, Response};
 pub use optimizations::{OptimizationFlags, PerformanceMonitor};
 pub use renderer::{RenderFrame, WebView};
-pub use rv8_sync::{
-    export_cookie_jar_json, import_cookie_jar, MonoBrowserSessionEnvelope, MonoCookieJarEnvelope,
-    MonoCookieJarSync, Rv8EngineSync, Rv8SyncAdapter, SyncObjectClass,
-};
 pub use storage::{Cookie, CookieJar, StorageManager};
 
 /// RV8 version

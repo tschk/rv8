@@ -82,7 +82,6 @@ cargo run --features single-process -- https://example.com
 ├── compositor/         # GPU compositing
 ├── networking/         # Network stack
 ├── storage/            # sled persistence (cookies, session, profile)
-├── rv8_sync/           # mono-protocol-shaped export/import
 ├── ipc/                # Inter-process communication
 └── optimizations/      # Performance tuning
     ├── flags.rs        # Chrome-like optimization flags
@@ -90,28 +89,28 @@ cargo run --features single-process -- https://example.com
     └── preload.rs      # Resource prefetching
 ```
 
-## Mono browser platform integration
+## Storage
 
-RV8 is being prepared as a **product adapter** for [mono](https://github.com/atechnology-company/mono) (`mono-protocol` replicated objects), alongside Plates/Rover.
+Persistent browser state lives under the profile directory in `storage.sled` (sled-backed). Incognito mode uses in-memory stores only.
 
-| Area | Location | Status |
-|------|----------|--------|
-| Profile + sled DB | `storage/` → `{profile_dir}/storage.sled` | **Implemented** (cookies, session, profile meta) |
-| Mono-shaped export/import | `rv8_sync/` | **Implemented** (JSON envelopes; no crypto/2FA yet) |
-| `BrowserEngine` in mono-browser | external crate | **TODO** — wire `Rv8EngineSync` to `mono-protocol` types |
-| Network cookie injection | `networking/` | **TODO** — reqwest jar backed by `CookieJar` |
+| Subsystem | Module | Notes |
+|-----------|--------|-------|
+| Profile metadata | `storage/profile.rs` | Profile id and meta tree |
+| Cookies | `storage/cookie.rs` | `CookieJar` with insert/get/replace |
+| Session | `storage/session.rs` | Tab snapshots per profile |
 
 Profile paths are defined in `core/config.rs` (`BrowserDataDirs`); see [AGENTS.md](./AGENTS.md) for env vars and defaults.
 
-Example sync export (local dev):
-
 ```rust
-use rv8::{export_cookie_jar_json, import_cookie_jar, StorageManager};
+use rv8::StorageManager;
+use std::path::Path;
 
-let storage = StorageManager::open(profile_dir, false)?;
-let json = export_cookie_jar_json(&storage, "identity-id")?;
-import_cookie_jar(&storage, "identity-id", &json)?;
+let storage = StorageManager::open(Path::new("/var/lib/soliloquy/browser/profiles/default"), false)?;
+storage.cookies.insert(cookie)?;
+storage.flush().await;
 ```
+
+Cross-device sync and product adapters belong in [mono](https://github.com/atechnology-company/mono) (`mono-adapters`, feature `rv8`), not in this engine repo.
 
 ## Integrates with the Plates ecosystem (optional)
 
