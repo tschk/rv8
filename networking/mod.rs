@@ -1,18 +1,24 @@
 //! Network stack module
 
-use crate::storage::StorageManager;
+use crate::storage::{CookieJar, StorageManager};
 use log::info;
 use std::sync::Arc;
 
 /// Network manager for HTTP requests
 pub struct NetworkManager {
-    // reqwest client will go here
+    cookies: Arc<CookieJar>,
 }
 
 impl NetworkManager {
-    pub async fn new(_storage: Arc<StorageManager>) -> Result<Self, String> {
+    pub async fn new(storage: Arc<StorageManager>) -> Result<Self, String> {
         info!("Initializing network manager");
-        Ok(NetworkManager {})
+        Ok(NetworkManager {
+            cookies: Arc::new(storage.cookies.clone()),
+        })
+    }
+
+    pub fn cookie_jar(&self) -> &CookieJar {
+        &self.cookies
     }
 }
 

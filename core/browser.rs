@@ -53,9 +53,8 @@ impl Browser {
         info!("Initializing RV8 browser...");
 
         // Initialize storage first (needed for cookies, cache)
-        let storage = StorageManager::new(&config.data_dirs.profile_dir)
-            .await
-            .map_err(|e| format!("Failed to init storage: {}", e))?;
+        let storage = StorageManager::open(&config.data_dirs.profile_dir, config.incognito)
+            .map_err(|e| format!("Failed to init storage: {e}"))?;
         let storage = Arc::new(storage);
         info!("Storage manager initialized");
 
@@ -146,6 +145,16 @@ impl Browser {
         // Navigate to URL
         self.navigate_tab(tab_id, url).await?;
 
+        let _ = self
+            .storage
+            .session
+            .upsert_tab(crate::storage::SessionTab {
+                tab_id: tab_id.0,
+                url: url.to_string(),
+                title: String::new(),
+            });
+        let _ = self.storage.session.set_active_tab(Some(tab_id.0));
+
         Ok(tab_id)
     }
 
@@ -199,6 +208,8 @@ impl Browser {
 
         // Terminate renderer process
         self.process_manager.terminate_renderer(tab_id).await;
+
+        let _ = self.storage.session.remove_tab(tab_id.0);
 
         Ok(())
     }
@@ -299,5 +310,10 @@ impl Browser {
     /// Request shutdown
     pub fn request_shutdown(&self) {
         let _ = self.shutdown.send(());
+    }
+
+    /// Persistent profile storage (cookies, session, metadata).
+    pub fn storage(&self) -> &StorageManager {
+        &self.storage
     }
 }

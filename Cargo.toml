@@ -90,6 +90,7 @@ hardware-acceleration = []
 
 [dev-dependencies]
 criterion = "0.5"
+tempfile = "3"
 tokio-test = "0.4"
 
 # Benchmarks
