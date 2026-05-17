@@ -70,6 +70,8 @@ pub use js::{JsEngine, JsValue};
 pub use networking::{NetworkManager, Request, Response};
 pub use optimizations::{OptimizationFlags, PerformanceMonitor};
 pub use renderer::{RenderFrame, WebView};
+#[cfg(feature = "servo-render")]
+pub use servo_embed::viewport::{ServoViewport, ViewportSnapshot};
 pub use storage::{Cookie, CookieJar, StorageManager};
 
 /// RV8 version

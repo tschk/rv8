@@ -6,19 +6,10 @@ A standalone browser-engine repo for Soliloquy, combining Servo rendering with V
 
 | Repo | Role |
 |------|------|
-| [`atechnology-company/rover`](https://github.com/atechnology-company/rover) | Canonical engine workspace extracted from Soliloquy (`rover-core`, `rover-proto`, Servo + V8 integration) |
-| [`atechnology-company/rover-desktop`](https://github.com/atechnology-company/rover-desktop) | Desktop host (Xilem/Masonry UI) around `rover` |
-| [`atechnology-company/soliloquy`](https://github.com/atechnology-company/soliloquy) | Appliance runtime, Alpine packaging, in-tree `src/rv8` |
-| **this repo** (`atechnology-company/rv8`) | Multi-process engine scaffold; keep aligned with `src/rv8` until `rover` subsumes active development |
+| **this repo** (`atechnology-company/rv8`) | Canonical browser engine: multi-process IPC, Servo embed, V8, storage, `viewportd` |
+| [`atechnology-company/soliloquy`](https://github.com/atechnology-company/soliloquy) | Appliance runtime; in-tree `src/rv8` stays aligned with this repo |
 
-Clone the active engine stack:
-
-```sh
-gh repo clone atechnology-company/rover
-gh repo clone atechnology-company/rover-desktop
-```
-
-`rover-desktop` expects `rover` as a sibling directory. A different project (macOS launcher) may also use the folder name `rover`; do not confuse it with the engine checkout.
+Archived experiments (read-only, not maintained): `atechnology-company/rover` (single-process engine + `rover-proto` contracts) and `atechnology-company/rover-desktop` (thin Xilem shell). Their useful ideas—stable host service traits and `DocumentSnapshot`—are already covered here by `ipc/messages.rs` plus richer process/storage/Servo paths. Do not confuse those repos with the unrelated macOS launcher at `semitechnological/rover`.
 
 ## Architecture
 
@@ -52,6 +43,28 @@ RV8 uses a Chrome-like multi-process architecture:
 - **Chrome-like Optimizations**: Tab discarding, prefetching, code caching
 - **Multi-Process**: Sandboxed renderers, site isolation
 - **Modern Standards**: HTTP/3, Web APIs, DevTools Protocol
+
+## `viewportd` (host embed protocol)
+
+GPUI shells (e.g. [mono-browser](https://github.com/atechnology-company/mono)) spawn `viewportd` as a subprocess to avoid linking Servo into the UI crate.
+
+```bash
+cargo build -p rv8 --bin viewportd
+RV8_VIEWPORT_WIDTH=1280 RV8_VIEWPORT_HEIGHT=800 ./target/debug/viewportd
+```
+
+**Stdin (line-based):**
+
+| Command | Example |
+|---------|---------|
+| Navigate | `NAV https://example.com/` |
+| Resize | `SIZE 1280 800` |
+| Scroll | `SCROLL 0.0 120.0` (device pixels; positive `y` reveals content below) |
+| Quit | `QUIT` |
+
+**Stdout:** `RV8M` metadata frames (title/url), then `RV8F` length-prefixed RGBA frames. See `src/bin/viewportd.rs` and `servo_embed/viewport.rs`.
+
+Product-side clients should stay thin (`mono-adapters`); engine behavior and polyfills belong here in `servo_embed/`.
 
 ## Quick Start
 

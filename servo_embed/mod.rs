@@ -18,7 +18,13 @@ use crate::js::{JsEngine, JsValue};
 use crate::renderer::RenderFrame;
 
 pub mod dom;
+#[cfg(feature = "servo-render")]
+mod embedder_polyfills;
 pub mod parser;
+#[cfg(feature = "servo-render")]
+mod servo_renderer;
+#[cfg(feature = "servo-render")]
+pub mod viewport;
 pub mod web_apis;
 
 use self::dom::{DomEvent, DomTree};
