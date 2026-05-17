@@ -13,9 +13,13 @@ use parking_lot::RwLock;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use crate::js::bindings::V8ContextData;
-use crate::js::{JsEngine, JsValue};
+use crate::js::JsValue;
 use crate::renderer::RenderFrame;
+
+#[cfg(feature = "rv8-v8")]
+use crate::js::bindings::V8ContextData;
+#[cfg(feature = "rv8-v8")]
+use crate::js::JsEngine;
 
 pub mod dom;
 #[cfg(feature = "servo-render")]
@@ -69,7 +73,8 @@ impl Default for ServoConfig {
 pub struct ServoEmbedder {
     /// Configuration
     config: ServoConfig,
-    /// V8 JavaScript engine
+    /// Standalone V8 (software-render builds only; Servo path uses soliloquy_v8)
+    #[cfg(feature = "rv8-v8")]
     pub js_engine: Arc<Mutex<JsEngine>>,
     /// DOM Tree
     dom_tree: Arc<RwLock<DomTree>>,
@@ -97,12 +102,7 @@ pub struct ServoEmbedder {
 impl ServoEmbedder {
     /// Create a new Servo embedder
     pub async fn new(config: ServoConfig) -> Result<Self, String> {
-        info!("Initializing Servo embedder with V8");
-
-        let mut js_engine =
-            JsEngine::new().map_err(|e| format!("Failed to create V8 engine: {}", e))?;
-
-        info!("V8 JavaScript engine version: {}", JsEngine::version());
+        info!("Initializing Servo embedder");
 
         let dom_tree = Arc::new(RwLock::new(DomTree::new()));
         let console_api = Arc::new(RwLock::new(ConsoleApi::new()));
@@ -110,14 +110,20 @@ impl ServoEmbedder {
         let local_storage = Arc::new(RwLock::new(StorageApi::new(5 * 1024 * 1024)));
         let session_storage = Arc::new(RwLock::new(StorageApi::new(5 * 1024 * 1024)));
 
-        // Initialize JsEngine with DOM and Web APIs
-        js_engine.initialize(V8ContextData::new(
-            dom_tree.clone(),
-            console_api.clone(),
-            timer_manager.clone(),
-            local_storage.clone(),
-            session_storage.clone(),
-        ));
+        #[cfg(feature = "rv8-v8")]
+        let js_engine = {
+            let mut js_engine =
+                JsEngine::new().map_err(|e| format!("Failed to create V8 engine: {}", e))?;
+            info!("V8 JavaScript engine version: {}", JsEngine::version());
+            js_engine.initialize(V8ContextData::new(
+                dom_tree.clone(),
+                console_api.clone(),
+                timer_manager.clone(),
+                local_storage.clone(),
+                session_storage.clone(),
+            ));
+            Arc::new(Mutex::new(js_engine))
+        };
 
         #[cfg(feature = "servo-render")]
         let servo = Some(
@@ -127,7 +133,8 @@ impl ServoEmbedder {
 
         Ok(ServoEmbedder {
             config,
-            js_engine: Arc::new(Mutex::new(js_engine)),
+            #[cfg(feature = "rv8-v8")]
+            js_engine,
             dom_tree,
             console_api,
             timer_manager,
@@ -212,15 +219,35 @@ impl ServoEmbedder {
     }
 
     /// Execute JavaScript in the context of the current document
-    pub async fn execute_script(&self, script: &str) -> Result<String, String> {
-        let mut engine = self.js_engine.lock().await;
-        engine.execute_to_string(script)
+    pub async fn execute_script(&mut self, script: &str) -> Result<String, String> {
+        #[cfg(feature = "servo-render")]
+        if let Some(ref mut servo) = self.servo {
+            return servo.evaluate_script_sync(script);
+        }
+        #[cfg(feature = "rv8-v8")]
+        {
+            let mut engine = self.js_engine.lock().await;
+            return engine.execute_to_string(script);
+        }
+        #[cfg(not(any(feature = "servo-render", feature = "rv8-v8")))]
+        let _ = script;
+        Err("JavaScript backend not enabled".to_string())
     }
 
     /// Execute JavaScript and return a typed transport value.
-    pub async fn execute_script_value(&self, script: &str) -> Result<JsValue, String> {
-        let mut engine = self.js_engine.lock().await;
-        engine.execute(script)
+    pub async fn execute_script_value(&mut self, script: &str) -> Result<JsValue, String> {
+        #[cfg(feature = "servo-render")]
+        if let Some(ref mut servo) = self.servo {
+            return servo.evaluate_script_value_sync(script);
+        }
+        #[cfg(feature = "rv8-v8")]
+        {
+            let mut engine = self.js_engine.lock().await;
+            return engine.execute(script);
+        }
+        #[cfg(not(any(feature = "servo-render", feature = "rv8-v8")))]
+        let _ = script;
+        Err("JavaScript backend not enabled".to_string())
     }
 
     /// Get the current render frame
@@ -274,8 +301,11 @@ impl ServoEmbedder {
         let target_id = self.dom_tree.read().document_id();
         let event = DomEvent::mouse("click", target_id, x, y, button);
         self.dom_tree.write().record_event(event.clone());
-        let mut engine = self.js_engine.lock().await;
-        engine.dispatch_event(&event);
+        #[cfg(feature = "rv8-v8")]
+        {
+            let mut engine = self.js_engine.lock().await;
+            engine.dispatch_event(&event);
+        }
     }
 
     /// Handle key event
@@ -285,8 +315,11 @@ impl ServoEmbedder {
         let event_type = if pressed { "keydown" } else { "keyup" };
         let event = DomEvent::key(event_type, target_id, key);
         self.dom_tree.write().record_event(event.clone());
-        let mut engine = self.js_engine.lock().await;
-        engine.dispatch_event(&event);
+        #[cfg(feature = "rv8-v8")]
+        {
+            let mut engine = self.js_engine.lock().await;
+            engine.dispatch_event(&event);
+        }
     }
 
     /// Handle scroll event
@@ -308,9 +341,12 @@ impl ServoEmbedder {
         };
 
         if !ready_timers.is_empty() {
-            let mut engine = self.js_engine.lock().await;
-            for timer in ready_timers {
-                engine.call_timer_callback(timer.id);
+            #[cfg(feature = "rv8-v8")]
+            {
+                let mut engine = self.js_engine.lock().await;
+                for timer in ready_timers {
+                    engine.call_timer_callback(timer.id);
+                }
             }
         }
     }

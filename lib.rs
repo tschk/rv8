@@ -63,10 +63,18 @@ pub mod optimizations;
 // Servo embedding and V8 integration
 pub mod servo_embed;
 
+#[cfg(all(feature = "servo-render", feature = "rv8-v8"))]
+compile_error!(
+    "servo-render and rv8-v8 are mutually exclusive: Servo uses soliloquy_v8 (one V8 isolate); \
+     enable rv8-v8 only with --no-default-features for standalone software-render builds"
+);
+
 // Re-exports
 pub use compositor::Compositor;
 pub use core::{Browser, BrowserConfig, Tab, TabId};
-pub use js::{JsEngine, JsValue};
+pub use js::JsValue;
+#[cfg(feature = "rv8-v8")]
+pub use js::JsEngine;
 pub use networking::{NetworkManager, Request, Response};
 pub use optimizations::{OptimizationFlags, PerformanceMonitor};
 pub use renderer::{RenderFrame, WebView};

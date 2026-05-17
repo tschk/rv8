@@ -61,7 +61,7 @@ impl RendererProcess {
                 else => break,
             }
 
-            // Perform V8 microtask checkpoint after handling messages or timers
+            #[cfg(feature = "rv8-v8")]
             {
                 let mut engine = self.embedder.js_engine.lock().await;
                 engine.perform_microtask_checkpoint();
@@ -182,7 +182,7 @@ impl RendererProcess {
     }
 
     /// Execute JavaScript
-    async fn execute_script(&self, script: &str, callback_id: u64) {
+    async fn execute_script(&mut self, script: &str, callback_id: u64) {
         let result = self.embedder.execute_script_value(script).await;
         match &result {
             Ok(value) => debug!("Script result for callback {}: {:?}", callback_id, value),

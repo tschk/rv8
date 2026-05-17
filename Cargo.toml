@@ -26,7 +26,7 @@ required-features = ["servo-render"]
 [dependencies]
 # V8 JavaScript Engine
 # Using crates.io version.
-rusty_v8 = "0.32"
+rusty_v8 = { version = "0.32", optional = true }
 
 # Logging
 log = "0.4"
@@ -76,7 +76,7 @@ num_cpus = "1.16"
 dirs = "6"
 
 # Servo layout/CSS/WebRender (requires ../soliloquy/third_party/servo)
-servo = { path = "../soliloquy/third_party/servo/components/servo", default-features = false, features = ["baked-in-resources", "clipboard"], optional = true }
+servo = { path = "../soliloquy/third_party/servo/components/servo", default-features = false, features = ["baked-in-resources", "clipboard", "soliloquy_v8"], optional = true }
 dpi = { version = "0.1", optional = true }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "std"], optional = true }
 servo-embedder-traits = { path = "../soliloquy/third_party/servo/components/shared/embedder", optional = true }
@@ -99,6 +99,7 @@ wayland = ["wayland-client"]
 gpu-compositing = []
 hardware-acceleration = []
 servo-render = ["dep:servo", "dep:dpi", "dep:rustls", "dep:servo-embedder-traits"]
+rv8-v8 = ["dep:rusty_v8"]
 
 [dev-dependencies]
 criterion = "0.5"
@@ -109,6 +110,7 @@ tokio-test = "0.4"
 [[bench]]
 name = "js_execution"
 harness = false
+required-features = ["rv8-v8"]
 
 [[bench]]
 name = "rendering"

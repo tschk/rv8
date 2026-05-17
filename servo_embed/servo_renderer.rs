@@ -15,7 +15,11 @@ use servo::{
 };
 use url::Url;
 
+use embedder_traits::JSValue;
+
 use super::embedder_polyfills;
+use crate::js::soliloquy::ensure_soliloquy_v8_selected;
+use crate::js::JsValue;
 use crate::renderer::RenderFrame;
 
 struct EmbedderDelegate {
@@ -66,6 +70,7 @@ pub struct ServoRenderer {
 
 impl ServoRenderer {
     pub fn new(width: u32, height: u32) -> Result<Self, String> {
+        ensure_soliloquy_v8_selected();
         let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
 
         let width = width.max(1);
@@ -191,6 +196,36 @@ impl ServoRenderer {
             .unwrap_or_else(|| String::new())
     }
 
+    pub fn evaluate_script_sync(&mut self, script: &str) -> Result<String, String> {
+        use std::sync::mpsc;
+
+        let (tx, rx) = mpsc::channel();
+        self.webview.evaluate_javascript(script, move |result| {
+            let _ = tx.send(result);
+        });
+        let _ = self.pump_until(|| rx.try_recv().is_ok(), Duration::from_secs(30));
+        match rx.recv() {
+            Ok(Ok(value)) => Ok(js_value_to_string(&value)),
+            Ok(Err(err)) => Err(format!("JavaScript evaluation failed: {err:?}")),
+            Err(_) => Err("JavaScript evaluation timed out".to_string()),
+        }
+    }
+
+    pub fn evaluate_script_value_sync(&mut self, script: &str) -> Result<JsValue, String> {
+        use std::sync::mpsc;
+
+        let (tx, rx) = mpsc::channel();
+        self.webview.evaluate_javascript(script, move |result| {
+            let _ = tx.send(result);
+        });
+        let _ = self.pump_until(|| rx.try_recv().is_ok(), Duration::from_secs(30));
+        match rx.recv() {
+            Ok(Ok(value)) => Ok(js_value_from_embedder(&value)),
+            Ok(Err(err)) => Err(format!("JavaScript evaluation failed: {err:?}")),
+            Err(_) => Err("JavaScript evaluation timed out".to_string()),
+        }
+    }
+
     pub fn capture_frame(&mut self, generation: u64) -> Option<RenderFrame> {
         let min_interval = Duration::from_millis(33);
         let pending = self.frame_ready.load(Ordering::Relaxed);
@@ -262,6 +297,38 @@ impl ServoRenderer {
             self.servo.spin_event_loop();
             thread::sleep(Duration::from_millis(1));
         }
+    }
+}
+
+fn js_value_to_string(value: &JSValue) -> String {
+    match value {
+        JSValue::Undefined => "undefined".to_string(),
+        JSValue::Null => "null".to_string(),
+        JSValue::Boolean(v) => v.to_string(),
+        JSValue::Number(n) => n.to_string(),
+        JSValue::String(s) => s.clone(),
+        JSValue::Element(_)
+        | JSValue::ShadowRoot(_)
+        | JSValue::Frame(_)
+        | JSValue::Window(_)
+        | JSValue::Object(_)
+        | JSValue::Array(_) => "[object]".to_string(),
+    }
+}
+
+fn js_value_from_embedder(value: &JSValue) -> JsValue {
+    match value {
+        JSValue::Undefined => JsValue::Undefined,
+        JSValue::Null => JsValue::Null,
+        JSValue::Boolean(v) => JsValue::Boolean(*v),
+        JSValue::Number(n) => JsValue::Number(*n),
+        JSValue::String(s) => JsValue::String(s.clone()),
+        JSValue::Element(_)
+        | JSValue::ShadowRoot(_)
+        | JSValue::Frame(_)
+        | JSValue::Window(_)
+        | JSValue::Object(_) => JsValue::Object,
+        JSValue::Array(_) => JsValue::Array,
     }
 }
 

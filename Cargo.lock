@@ -6264,6 +6264,7 @@ dependencies = [
  "mozangle",
  "parking_lot 0.12.5",
  "rustc-hash 2.1.2",
+ "rusty_v8",
  "serde",
  "servo-background-hang-monitor",
  "servo-base",

@@ -21,7 +21,7 @@ fn rendering_benchmark(c: &mut Criterion) {
     c.bench_function("servo_js_execution", |b| {
         b.to_async(&rt).iter(|| async {
             let config = rv8::servo_embed::ServoConfig::default();
-            let embedder = ServoEmbedder::new(config).await.unwrap();
+            let mut embedder = ServoEmbedder::new(config).await.unwrap();
             black_box(embedder.execute_script("1 + 1").await.unwrap());
         });
     });

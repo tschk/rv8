@@ -52,6 +52,8 @@ fn write_meta(
 }
 
 fn main() {
+    rv8::js::soliloquy::ensure_soliloquy_v8_selected();
+
     let width = std::env::var("RV8_VIEWPORT_WIDTH")
         .ok()
         .and_then(|s| s.parse().ok())
