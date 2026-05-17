@@ -18,6 +18,11 @@ path = "lib.rs"
 name = "rv8"
 path = "main.rs"
 
+[[bin]]
+name = "viewportd"
+path = "src/bin/viewportd.rs"
+required-features = ["servo-render"]
+
 [dependencies]
 # V8 JavaScript Engine
 # Using crates.io version.
@@ -70,6 +75,12 @@ nix = { version = "0.27", features = ["sched"] }
 num_cpus = "1.16"
 dirs = "6"
 
+# Servo layout/CSS/WebRender (requires ../soliloquy/third_party/servo)
+servo = { path = "../soliloquy/third_party/servo/components/servo", default-features = false, features = ["baked-in-resources", "clipboard"], optional = true }
+dpi = { version = "0.1", optional = true }
+rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "std"], optional = true }
+servo-embedder-traits = { path = "../soliloquy/third_party/servo/components/shared/embedder", optional = true }
+
 # Platform-specific
 [target.'cfg(target_os = "linux")'.dependencies]
 x11rb = { version = "0.13", optional = true }
@@ -80,13 +91,14 @@ cocoa = "0.26"
 objc2 = "0.5"
 
 [features]
-default = ["multi-process"]
+default = ["multi-process", "servo-render"]
 multi-process = []
 single-process = []
 x11 = ["x11rb"]
 wayland = ["wayland-client"]
 gpu-compositing = []
 hardware-acceleration = []
+servo-render = ["dep:servo", "dep:dpi", "dep:rustls", "dep:servo-embedder-traits"]
 
 [dev-dependencies]
 criterion = "0.5"
@@ -111,3 +123,6 @@ panic = "abort"
 [profile.release-with-debug]
 inherits = "release"
 debug = true
+
+[patch.crates-io]
+surfman = { path = "../soliloquy/third_party/servo/support/patches/surfman" }
