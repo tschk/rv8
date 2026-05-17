@@ -3,9 +3,8 @@
 ## Overview
 **RV8** (Roverate V8) is a standalone browser engine combining Servo's rendering with V8's JavaScript execution, featuring Chrome-like multi-process architecture and optimizations.
 
-Active engine extraction and service contracts now live in [`atechnology-company/rover`](https://github.com/atechnology-company/rover), with desktop hosting in [`atechnology-company/rover-desktop`](https://github.com/atechnology-company/rover-desktop). Prefer those repos for new boundary work; keep this repo and Soliloquy's in-tree `src/rv8` aligned until migration completes.
-
 ---
+
 
 ## Phase 1: Core Infrastructure ✅ (Scaffolding Complete)
 
@@ -241,16 +240,12 @@ cargo run -p rv8 --release -- https://example.com
 
 ## Dependencies on Other Work
 
-1. **Rover engine** ([atechnology-company/rover](https://github.com/atechnology-company/rover))
-   - Canonical engine workspace for session/tab model, `rover-proto` contracts, and Servo + V8 integration
-   - Desktop shell: [atechnology-company/rover-desktop](https://github.com/atechnology-company/rover-desktop)
-
-2. **Servo Fork** (atechnology-company/servo)
+1. **Servo Fork** (atechnology-company/servo)
    - Remove SpiderMonkey
    - Expose layout/paint APIs
    - Create embedding interface
 
-3. **rusty_v8 Fork** (atechnology-company/rusty_v8)
+2. **rusty_v8 Fork** (atechnology-company/rusty_v8)
    - May need custom patches for specific optimizations
 
 ---
