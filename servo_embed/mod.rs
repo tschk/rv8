@@ -8,7 +8,7 @@
 //! - V8 (from rv8) handles JavaScript execution
 //! - This module bridges the two engines
 
-use log::{debug, error, info};
+use log::{debug, info};
 use parking_lot::RwLock;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -25,6 +25,8 @@ pub mod parser;
 mod servo_renderer;
 #[cfg(feature = "servo-render")]
 pub mod viewport;
+#[cfg(not(feature = "servo-render"))]
+mod paint;
 pub mod web_apis;
 
 use self::dom::{DomEvent, DomTree};
@@ -87,6 +89,9 @@ pub struct ServoEmbedder {
     loading: bool,
     /// Load progress (0-100)
     load_progress: u8,
+    frame_generation: u64,
+    #[cfg(feature = "servo-render")]
+    servo: Option<servo_renderer::ServoRenderer>,
 }
 
 impl ServoEmbedder {
@@ -114,6 +119,12 @@ impl ServoEmbedder {
             session_storage.clone(),
         ));
 
+        #[cfg(feature = "servo-render")]
+        let servo = Some(
+            servo_renderer::ServoRenderer::new(config.width, config.height)
+                .map_err(|e| format!("Servo renderer init failed: {e}"))?,
+        );
+
         Ok(ServoEmbedder {
             config,
             js_engine: Arc::new(Mutex::new(js_engine)),
@@ -126,6 +137,9 @@ impl ServoEmbedder {
             title: String::new(),
             loading: false,
             load_progress: 0,
+            frame_generation: 0,
+            #[cfg(feature = "servo-render")]
+            servo,
         })
     }
 
@@ -137,46 +151,59 @@ impl ServoEmbedder {
         self.loading = true;
         self.load_progress = 0;
 
-        // Fetch HTML
-        info!("Fetching URL: {}", url);
-        match reqwest::get(url).await {
-            Ok(response) => {
-                if !response.status().is_success() {
-                    error!("Failed to fetch URL {}: Status {}", url, response.status());
-                    self.loading = false;
-                    return Err(format!("HTTP error: {}", response.status()));
-                }
-
-                match response.text().await {
-                    Ok(html) => {
-                        info!("Parsing HTML...");
-                        self.load_progress = 50;
-
-                        {
-                            let mut dom = self.dom_tree.write();
-                            // Reset DOM tree
-                            *dom = DomTree::new();
-
-                            parser::parse_html(&html, &mut *dom);
-                        }
-                        info!("HTML parsing complete");
-                    }
-                    Err(e) => {
-                        error!("Failed to read response text: {}", e);
-                        self.loading = false;
-                        return Err(format!("Failed to read response: {}", e));
-                    }
-                }
-            }
-            Err(e) => {
-                error!("Failed to fetch URL {}: {}", url, e);
-                self.loading = false;
-                return Err(format!("Network error: {}", e));
-            }
+        #[cfg(feature = "servo-render")]
+        if let Some(ref mut servo) = self.servo {
+            servo.navigate(url)?;
+            self.title = servo.title();
+            self.frame_generation = self.frame_generation.saturating_add(1);
+            self.loading = false;
+            self.load_progress = 100;
+            return Ok(());
         }
 
-        // Execute any inline scripts via V8
-        // self.execute_document_scripts().await?;
+        #[cfg(not(feature = "servo-render"))]
+        {
+            use log::error;
+            info!("Fetching URL: {}", url);
+            match reqwest::get(url).await {
+                Ok(response) => {
+                    if !response.status().is_success() {
+                        error!("Failed to fetch URL {}: Status {}", url, response.status());
+                        self.loading = false;
+                        return Err(format!("HTTP error: {}", response.status()));
+                    }
+
+                    match response.text().await {
+                        Ok(html) => {
+                            info!("Parsing HTML...");
+                            self.load_progress = 50;
+
+                            {
+                                let mut dom = self.dom_tree.write();
+                                *dom = DomTree::new();
+                                parser::parse_html(&html, &mut *dom);
+                            }
+                            self.title = self
+                                .dom_tree
+                                .read()
+                                .document_title()
+                                .unwrap_or_default();
+                            info!("HTML parsing complete");
+                        }
+                        Err(e) => {
+                            error!("Failed to read response text: {}", e);
+                            self.loading = false;
+                            return Err(format!("Failed to read response: {e}"));
+                        }
+                    }
+                }
+                Err(e) => {
+                    error!("Failed to fetch URL {}: {}", url, e);
+                    self.loading = false;
+                    return Err(format!("Network error: {e}"));
+                }
+            }
+        }
 
         self.loading = false;
         self.load_progress = 100;
@@ -197,15 +224,41 @@ impl ServoEmbedder {
     }
 
     /// Get the current render frame
-    pub fn get_render_frame(&self) -> Option<RenderFrame> {
-        // TODO: Get frame from Servo's compositor
-        Some(RenderFrame::new(self.config.width, self.config.height))
+    pub fn get_render_frame(&mut self) -> Option<RenderFrame> {
+        #[cfg(feature = "servo-render")]
+        if let Some(ref mut servo) = self.servo {
+            let gen = self.frame_generation.saturating_add(1);
+            if let Some(frame) = servo.capture_frame(gen) {
+                self.frame_generation = frame.id;
+                return Some(frame);
+            }
+        }
+
+        #[cfg(not(feature = "servo-render"))]
+        {
+            let mut frame = RenderFrame::new(self.config.width, self.config.height);
+            let dom = self.dom_tree.read();
+            let ctx = paint::PaintContext {
+                url: &self.current_url,
+                title: &self.title,
+                loading: self.loading,
+            };
+            paint::paint_document_frame(&mut frame, &dom, &ctx);
+            return Some(frame);
+        }
+
+        #[cfg(feature = "servo-render")]
+        None
     }
 
     /// Resize the viewport
     pub fn resize(&mut self, width: u32, height: u32) {
         self.config.width = width;
         self.config.height = height;
+        #[cfg(feature = "servo-render")]
+        if let Some(ref mut servo) = self.servo {
+            servo.resize(width, height);
+        }
         debug!("Viewport resized to {}x{}", width, height);
     }
 
@@ -238,7 +291,12 @@ impl ServoEmbedder {
 
     /// Handle scroll event
     pub fn handle_scroll(&mut self, delta_x: f32, delta_y: f32) {
-        // TODO: Forward to Servo's event handling
+        #[cfg(feature = "servo-render")]
+        if let Some(ref mut servo) = self.servo {
+            servo.scroll_by(delta_x, delta_y);
+            self.frame_generation = self.frame_generation.saturating_add(1);
+            return;
+        }
         debug!("Scroll: ({}, {})", delta_x, delta_y);
     }
 

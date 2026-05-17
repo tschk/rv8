@@ -103,7 +103,7 @@ impl ServoRenderer {
             .delegate(delegate)
             .build();
 
-        let mut renderer = ServoRenderer {
+        let renderer = ServoRenderer {
             servo,
             rendering_context,
             webview,
