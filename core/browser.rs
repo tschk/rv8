@@ -1,17 +1,20 @@
 //! Main Browser struct - the coordinator for all browser functionality
 
-use log::info;
+use log::{debug, info};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
 
 use super::{BrowserConfig, ProcessManager, Tab, TabId};
 use crate::compositor::Compositor;
+use crate::ipc::BrowserMessage;
 use crate::networking::NetworkManager;
+use crate::renderer::RenderFrame;
 use crate::optimizations::{OptimizationFlags, PerformanceMonitor};
 use crate::storage::StorageManager;
 
 /// Main browser instance
+#[allow(dead_code)]
 pub struct Browser {
     /// Browser configuration
     config: BrowserConfig,
@@ -45,6 +48,9 @@ pub struct Browser {
 
     /// Shutdown signal
     shutdown: tokio::sync::broadcast::Sender<()>,
+
+    /// Renderer → browser IPC events
+    browser_events: tokio::sync::mpsc::UnboundedReceiver<BrowserMessage>,
 }
 
 impl Browser {
@@ -65,6 +71,8 @@ impl Browser {
         let network = Arc::new(network);
         info!("Network manager initialized");
 
+        let (browser_event_tx, browser_event_rx) = tokio::sync::mpsc::unbounded_channel();
+
         // Initialize process manager
         let process_manager = if config.multi_process {
             ProcessManager::new_multi_process()
@@ -72,6 +80,9 @@ impl Browser {
             ProcessManager::new_single_process()
         };
         let process_manager = Arc::new(process_manager);
+        process_manager
+            .set_browser_event_forwarder(browser_event_tx)
+            .await;
         info!(
             "Process manager initialized (multi_process={})",
             config.multi_process
@@ -104,7 +115,34 @@ impl Browser {
             perf_monitor,
             opt_flags,
             shutdown: shutdown_tx,
+            browser_events: browser_event_rx,
         })
+    }
+
+    async fn handle_renderer_message(&self, msg: BrowserMessage) {
+        match msg {
+            BrowserMessage::FrameReady { tab_id, frame } => {
+                let tab_id = TabId(tab_id);
+                let tabs = self.tabs.read().await;
+                if let Some(tab) = tabs.get(&tab_id) {
+                    tab.lock().await.set_render_frame(frame);
+                }
+            }
+            BrowserMessage::TitleChanged { tab_id, title } => {
+                let tab_id = TabId(tab_id);
+                let tabs = self.tabs.read().await;
+                if let Some(tab) = tabs.get(&tab_id) {
+                    tab.lock().await.set_title(title);
+                }
+            }
+            BrowserMessage::LoadComplete { tab_id } => {
+                debug!("Tab {} load complete", tab_id);
+            }
+            other => {
+                debug!("Browser message: {:?}", other);
+            }
+        }
+        self.compositor.request_frame().await;
     }
 
     /// Create a new tab and navigate to the given URL
@@ -253,6 +291,10 @@ impl Browser {
                 _ = shutdown_rx.recv() => {
                     info!("Shutdown signal received");
                     break;
+                }
+
+                Some(msg) = self.browser_events.recv() => {
+                    self.handle_renderer_message(msg).await;
                 }
 
                 // Compositor frame

@@ -1,18 +1,17 @@
 //! Process manager for Chrome-like multi-process architecture
 
-use log::{debug, error, info, warn};
+use log::{debug, info};
 #[cfg(target_os = "linux")]
 use nix::sched::sched_setaffinity;
 #[cfg(target_os = "linux")]
 use nix::sched::CpuSet;
-use num_cpus;
 use std::collections::HashMap;
 use std::process::{Child, Command};
 use tokio::sync::Mutex;
 
 use super::TabId;
 use crate::ipc::{
-    self, BrowserMessage, IpcServer, RendererChannel, RendererClient, RendererMessage,
+    self, BrowserMessage, IpcServer, RendererClient, RendererMessage,
 };
 
 /// Process manager for spawning and managing child processes
@@ -34,6 +33,9 @@ pub struct ProcessManager {
 
     /// Core assignment counter for per-tab isolation
     core_counter: std::sync::atomic::AtomicUsize,
+
+    /// Optional forwarder for renderer → browser messages
+    browser_events: Mutex<Option<tokio::sync::mpsc::UnboundedSender<BrowserMessage>>>,
 }
 
 /// Wrapper for child process
@@ -54,6 +56,7 @@ impl ProcessManager {
             network_process: Mutex::new(None),
             ipc_server: IpcServer::new(),
             core_counter: std::sync::atomic::AtomicUsize::new(0),
+            browser_events: Mutex::new(None),
         }
     }
 
@@ -67,7 +70,15 @@ impl ProcessManager {
             network_process: Mutex::new(None),
             ipc_server: IpcServer::new(),
             core_counter: std::sync::atomic::AtomicUsize::new(0),
+            browser_events: Mutex::new(None),
         }
+    }
+
+    pub async fn set_browser_event_forwarder(
+        &self,
+        tx: tokio::sync::mpsc::UnboundedSender<BrowserMessage>,
+    ) {
+        *self.browser_events.lock().await = Some(tx);
     }
 
     /// Spawn a renderer process for a tab
@@ -146,10 +157,14 @@ impl ProcessManager {
         // 6. Handle rx_from_renderer
         // Spawn a thread to read messages and handle them.
         // For now, we just log them as there's no central router yet.
+        let event_tx = self.browser_events.lock().await.clone();
         std::thread::spawn(move || {
             while let Ok(msg) = rx_from_renderer.recv() {
-                debug!("Browser received message: {:?}", msg);
-                // TODO: Forward to Browser/Router
+                if let Some(ref tx) = event_tx {
+                    let _ = tx.send(msg);
+                } else {
+                    debug!("Browser received message: {:?}", msg);
+                }
             }
         });
 
@@ -182,9 +197,14 @@ impl ProcessManager {
             ipc::channel::<BrowserMessage>().map_err(|e| e.to_string())?;
 
         // Handle rx_from_renderer (Browser side)
+        let event_tx = self.browser_events.lock().await.clone();
         std::thread::spawn(move || {
             while let Ok(msg) = rx_from_renderer.recv() {
-                debug!("Browser received message (in-process): {:?}", msg);
+                if let Some(ref tx) = event_tx {
+                    let _ = tx.send(msg);
+                } else {
+                    debug!("Browser received message (in-process): {:?}", msg);
+                }
             }
         });
 

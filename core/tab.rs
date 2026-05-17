@@ -1,6 +1,6 @@
 //! Tab representation and management
 
-use log::{debug, error, info};
+use log::{debug, info};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
