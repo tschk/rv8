@@ -59,7 +59,8 @@ impl EventLoopWaker for EventLoopWakerImpl {
 pub struct ServoRenderer {
     servo: Servo,
     rendering_context: Rc<dyn RenderingContext>,
-    webview: WebView,
+    webview: Option<WebView>,
+    delegate: Rc<EmbedderDelegate>,
     width: u32,
     height: u32,
     frame_ready: Arc<AtomicBool>,
@@ -104,14 +105,11 @@ impl ServoRenderer {
             head_parsed: head_parsed.clone(),
         });
 
-        let webview = WebViewBuilder::new(&servo, rendering_context.clone())
-            .delegate(delegate)
-            .build();
-
         let renderer = ServoRenderer {
             servo,
             rendering_context,
-            webview,
+            webview: None,
+            delegate,
             width,
             height,
             frame_ready,
@@ -127,14 +125,20 @@ impl ServoRenderer {
         self.load_complete.store(false, Ordering::Relaxed);
         self.head_parsed.store(false, Ordering::Relaxed);
         self.frame_ready.store(false, Ordering::Relaxed);
-        self.webview.load(parsed);
+        if let Some(webview) = &self.webview {
+            webview.load(parsed);
+        } else {
+            self.webview = Some(
+                WebViewBuilder::new(&self.servo, self.rendering_context.clone())
+                    .delegate(self.delegate.clone())
+                    .url(parsed)
+                    .build(),
+            );
+        }
 
         let load_timeout = Duration::from_secs(180);
         let load_ok = self
-            .pump_until(
-                || self.load_complete.load(Ordering::Relaxed),
-                load_timeout,
-            )
+            .pump_until(|| self.load_complete.load(Ordering::Relaxed), load_timeout)
             .is_ok();
 
         if !load_ok {
@@ -143,14 +147,15 @@ impl ServoRenderer {
                 load_timeout
             );
         }
-
         let settle_ms = std::env::var("RV8_SCRIPT_SETTLE_MS")
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(3500);
         self.pump_for(Duration::from_millis(settle_ms));
         self.install_polyfills();
-        self.webview.paint();
+        if let Some(webview) = &self.webview {
+            webview.paint();
+        }
         let _ = self.pump_until(
             || self.frame_ready.load(Ordering::Relaxed),
             Duration::from_secs(45),
@@ -172,7 +177,9 @@ impl ServoRenderer {
     pub fn resize(&mut self, width: u32, height: u32) {
         self.width = width.max(1);
         self.height = height.max(1);
-        self.webview.resize(PhysicalSize::new(self.width, self.height));
+        if let Some(webview) = &self.webview {
+            webview.resize(PhysicalSize::new(self.width, self.height));
+        }
         self.frame_ready.store(false, Ordering::Relaxed);
         self.pump_for(Duration::from_millis(50));
     }
@@ -184,15 +191,24 @@ impl ServoRenderer {
             (self.width as f32 * 0.5).round(),
             (self.height as f32 * 0.5).round(),
         );
-        self.webview
-            .notify_scroll_event(Scroll::Delta(vector), WebViewPoint::Device(center));
+        if let Some(webview) = &self.webview {
+            webview.notify_scroll_event(Scroll::Delta(vector), WebViewPoint::Device(center));
+            self.frame_ready.store(true, Ordering::Relaxed);
+            self.tick();
+        }
+    }
+
+    pub fn handle_mouse_click_at(&mut self, x: f32, y: f32) {
+        let script = build_click_script(x, y);
+        let _ = self.evaluate_script_sync(&script);
         self.frame_ready.store(true, Ordering::Relaxed);
         self.tick();
     }
 
     pub fn title(&self) -> String {
         self.webview
-            .page_title()
+            .as_ref()
+            .and_then(|webview| webview.page_title())
             .unwrap_or_else(|| String::new())
     }
 
@@ -200,14 +216,25 @@ impl ServoRenderer {
         use std::sync::mpsc;
 
         let (tx, rx) = mpsc::channel();
-        self.webview.evaluate_javascript(script, move |result| {
+        let Some(webview) = &self.webview else {
+            return Err("JavaScript evaluation requested before navigation".to_string());
+        };
+        webview.evaluate_javascript(script, move |result| {
             let _ = tx.send(result);
         });
-        let _ = self.pump_until(|| rx.try_recv().is_ok(), Duration::from_secs(30));
-        match rx.recv() {
-            Ok(Ok(value)) => Ok(js_value_to_string(&value)),
-            Ok(Err(err)) => Err(format!("JavaScript evaluation failed: {err:?}")),
-            Err(_) => Err("JavaScript evaluation timed out".to_string()),
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            if let Ok(result) = rx.try_recv() {
+                return match result {
+                    Ok(value) => Ok(js_value_to_string(&value)),
+                    Err(err) => Err(format!("JavaScript evaluation failed: {err:?}")),
+                };
+            }
+            if Instant::now() >= deadline {
+                return Err("JavaScript evaluation timed out".to_string());
+            }
+            self.servo.spin_event_loop();
+            thread::sleep(Duration::from_millis(1));
         }
     }
 
@@ -215,14 +242,25 @@ impl ServoRenderer {
         use std::sync::mpsc;
 
         let (tx, rx) = mpsc::channel();
-        self.webview.evaluate_javascript(script, move |result| {
+        let Some(webview) = &self.webview else {
+            return Err("JavaScript evaluation requested before navigation".to_string());
+        };
+        webview.evaluate_javascript(script, move |result| {
             let _ = tx.send(result);
         });
-        let _ = self.pump_until(|| rx.try_recv().is_ok(), Duration::from_secs(30));
-        match rx.recv() {
-            Ok(Ok(value)) => Ok(js_value_from_embedder(&value)),
-            Ok(Err(err)) => Err(format!("JavaScript evaluation failed: {err:?}")),
-            Err(_) => Err("JavaScript evaluation timed out".to_string()),
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            if let Ok(result) = rx.try_recv() {
+                return match result {
+                    Ok(value) => Ok(js_value_from_embedder(&value)),
+                    Err(err) => Err(format!("JavaScript evaluation failed: {err:?}")),
+                };
+            }
+            if Instant::now() >= deadline {
+                return Err("JavaScript evaluation timed out".to_string());
+            }
+            self.servo.spin_event_loop();
+            thread::sleep(Duration::from_millis(1));
         }
     }
 
@@ -238,18 +276,17 @@ impl ServoRenderer {
         } else {
             self.pump_for(Duration::from_millis(8));
         }
-
+        let webview = self.webview.as_ref()?;
         if !self.frame_ready.load(Ordering::Relaxed) {
-            self.webview.paint();
+            webview.paint();
         }
-
         let rect = DeviceIntRect::from_origin_and_size(
             DeviceIntPoint::zero(),
             DeviceIntSize::new(self.width as i32, self.height as i32),
         );
-        let image = self.rendering_context.read_to_image(rect)?;
         self.frame_ready.store(false, Ordering::Relaxed);
         self.last_capture = Instant::now();
+        let image = self.rendering_context.read_to_image(rect)?;
 
         let mut frame = RenderFrame::new(self.width, self.height);
         frame.id = generation;
@@ -268,13 +305,14 @@ impl ServoRenderer {
     fn install_polyfills(&mut self) {
         let done = Arc::new(AtomicBool::new(false));
         let done_cb = done.clone();
-        self.webview
-            .evaluate_javascript(embedder_polyfills::SCRIPT, move |result| {
+        if let Some(webview) = &self.webview {
+            webview.evaluate_javascript(embedder_polyfills::SCRIPT, move |result| {
                 if let Err(err) = result {
                     eprintln!("[rv8] embedder polyfill injection failed: {err:?}");
                 }
                 done_cb.store(true, Ordering::Relaxed);
             });
+        }
         let _ = self.pump_until(|| done.load(Ordering::Relaxed), Duration::from_secs(8));
         self.pump_for(Duration::from_millis(200));
     }
@@ -337,19 +375,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn example_com_renders_with_layout() {
+    fn data_page_renders_with_layout() {
         let mut renderer = ServoRenderer::new(800, 600).expect("servo renderer");
         renderer
-            .navigate("https://example.com")
-            .expect("navigate example.com");
+            .navigate("data:text/html,<html><body><h1>Hello%20RV8</h1><p>Visible%20content</p></body></html>")
+            .expect("navigate data page");
         let frame = renderer.capture_frame(1).expect("frame");
         assert_eq!(frame.width, 800);
         assert_eq!(frame.height, 600);
-        let non_blank = frame
+        let non_white = frame
             .pixels
             .chunks_exact(4)
-            .any(|px| px[0] > 32 || px[1] > 32 || px[2] > 32);
-        assert!(non_blank, "expected non-blank Servo pixels for example.com");
+            .filter(|px| px[0] <= 245 || px[1] <= 245 || px[2] <= 245)
+            .count();
+        assert!(
+            non_white > frame.pixels.len() / 4000,
+            "expected visible non-white page pixels"
+        );
     }
 
     #[test]
@@ -373,4 +415,18 @@ mod tests {
             "expected mostly non-black pixels (got {dark_pixels}/{total} dark); likely error page"
         );
     }
+}
+
+fn build_click_script(x: f32, y: f32) -> String {
+    let mut s = String::with_capacity(256);
+    s.push_str("var e=document.elementFromPoint(");
+    s.push_str(&x.to_string());
+    s.push(',');
+    s.push_str(&y.to_string());
+    s.push_str(");if(e){e.click();e.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true,clientX:");
+    s.push_str(&x.to_string());
+    s.push_str(",clientY:");
+    s.push_str(&y.to_string());
+    s.push_str("}));}");
+    s
 }

@@ -23,6 +23,11 @@ name = "viewportd"
 path = "src/bin/viewportd.rs"
 required-features = ["servo-render"]
 
+[[bin]]
+name = "rv8-chrome"
+path = "src/bin/rv8-chrome.rs"
+required-features = ["chrome"]
+
 [dependencies]
 # V8 JavaScript Engine
 # Using crates.io version.
@@ -41,6 +46,8 @@ async-channel = "2.2"
 soliloquy_browser_optimizations = { path = "../soliloquy/src" }
 
 # gpui = { git = "https://github.com/zed-industries/zed", package = "gpui" }
+gpui = { version = "=0.2.2", optional = true, default-features = false, features = ["font-kit"] }
+crepuscularity-gpui = { path = "../crepuscularity/crates/crepuscularity-gpui", optional = true }
 
 # Networking
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "cookies", "gzip", "brotli"] }
@@ -100,6 +107,7 @@ gpu-compositing = []
 hardware-acceleration = []
 servo-render = ["dep:servo", "dep:dpi", "dep:rustls", "dep:servo-embedder-traits"]
 rv8-v8 = ["dep:rusty_v8"]
+chrome = ["dep:gpui", "dep:crepuscularity-gpui"]
 
 [dev-dependencies]
 criterion = "0.5"
