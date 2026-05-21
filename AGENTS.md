@@ -62,5 +62,5 @@ ipc/             → ipc-channel messages
 ## Related repos
 
 - **mono** — sync protocol, adapters, gateway, browser product shell
-- **rover** — canonical engine extraction target
-- **soliloquy** — appliance runtime; in-tree `src/rv8` should stay aligned
+- **rover** — launcher/runtime consumer
+- **soliloquy** — appliance runtime; consumes this RV8 engine checkout

@@ -82,11 +82,11 @@ nix = { version = "0.27", features = ["sched"] }
 num_cpus = "1.16"
 dirs = "6"
 
-# Servo layout/CSS/WebRender (requires ../soliloquy/third_party/servo)
-servo = { path = "../soliloquy/third_party/servo/components/servo", default-features = false, features = ["baked-in-resources", "clipboard", "soliloquy_v8"], optional = true }
+# Servo layout/CSS/WebRender (rv8-owned engine checkout)
+servo = { path = "third_party/servo/components/servo", default-features = false, features = ["baked-in-resources", "clipboard", "soliloquy_v8"], optional = true }
 dpi = { version = "0.1", optional = true }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "std"], optional = true }
-servo-embedder-traits = { path = "../soliloquy/third_party/servo/components/shared/embedder", optional = true }
+servo-embedder-traits = { path = "third_party/servo/components/shared/embedder", optional = true }
 
 # Platform-specific
 [target.'cfg(target_os = "linux")'.dependencies]
@@ -135,4 +135,4 @@ inherits = "release"
 debug = true
 
 [patch.crates-io]
-surfman = { path = "../soliloquy/third_party/servo/support/patches/surfman" }
+surfman = { path = "third_party/servo/support/patches/surfman" }
