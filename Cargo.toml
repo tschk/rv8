@@ -5,8 +5,8 @@ edition = "2021"
 description = "rv8, a modern browser engine with Servo rendering and V8 JavaScript"
 license-file = "LICENSE"
 rust-version = "1.75.0"
-authors = ["ATechnology Company"]
-repository = "https://github.com/atechnology-company/rv8"
+authors = ["Max Carter <max@undivisible.dev>"]
+repository = "https://github.com/tschk/rv8"
 keywords = ["browser", "servo", "v8", "webengine", "rendering"]
 categories = ["web-programming", "rendering", "gui"]
 
