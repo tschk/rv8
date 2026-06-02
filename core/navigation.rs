@@ -93,3 +93,21 @@ impl NavigationController {
         self.current_index
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_navigation_controller_new() {
+        let initial_url = "https://example.com".to_string();
+        let controller = NavigationController::new(initial_url.clone());
+
+        assert_eq!(controller.entries().len(), 1);
+        assert_eq!(controller.current_index(), 0);
+
+        let entry = controller.current().expect("Expected a current entry");
+        assert_eq!(entry.url, initial_url);
+        assert_eq!(entry.title, None);
+    }
+}
