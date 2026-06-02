@@ -110,7 +110,7 @@ rv8-v8 = ["dep:rusty_v8"]
 chrome = ["dep:gpui", "dep:crepuscularity-gpui"]
 
 [dev-dependencies]
-criterion = "0.5"
+criterion = { version = "0.5", features = ["async_tokio"] }
 tempfile = "3"
 tokio-test = "0.4"
 

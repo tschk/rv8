@@ -2,65 +2,73 @@
 
 pub const SCRIPT: &str = r#"
 (function () {
-  if (globalThis.__rv8EmbedPolyfills) return;
-  globalThis.__rv8EmbedPolyfills = true;
+  var root = this;
+  if (root.__rv8EmbedPolyfills) return;
+  root.__rv8EmbedPolyfills = true;
 
-  if (typeof globalThis.ResizeObserver === "undefined") {
-    const registry = new Set();
-    const tick = () => {
-      for (const ro of registry) {
+  if (typeof root.ResizeObserver === "undefined") {
+    var registry = [];
+    var tick = function () {
+      for (var i = 0; i < registry.length; i++) {
         try {
-          ro._notify();
+          registry[i]._notify();
         } catch (_) {}
       }
-      if (typeof globalThis.requestAnimationFrame === "function") {
-        globalThis.requestAnimationFrame(tick);
+      if (typeof root.requestAnimationFrame === "function") {
+        root.requestAnimationFrame(tick);
       }
     };
-    globalThis.ResizeObserver = class ResizeObserver {
-      constructor(callback) {
-        this._callback = callback;
-        this._targets = new Set();
-        registry.add(this);
+    root.ResizeObserver = function ResizeObserver(callback) {
+      this._callback = callback;
+      this._targets = [];
+      registry.push(this);
+    };
+    root.ResizeObserver.prototype.observe = function (target) {
+      if (target && this._targets.indexOf(target) === -1) {
+        this._targets.push(target);
       }
-      observe(target) {
-        if (target) this._targets.add(target);
+    };
+    root.ResizeObserver.prototype.unobserve = function (target) {
+      var index = this._targets.indexOf(target);
+      if (index !== -1) {
+        this._targets.splice(index, 1);
       }
-      unobserve(target) {
-        this._targets.delete(target);
+    };
+    root.ResizeObserver.prototype.disconnect = function () {
+      this._targets = [];
+      var index = registry.indexOf(this);
+      if (index !== -1) {
+        registry.splice(index, 1);
       }
-      disconnect() {
-        this._targets.clear();
-        registry.delete(this);
-      }
-      _notify() {
-        if (!this._targets.size) return;
-        const entries = [];
-        for (const target of this._targets) {
-          let rect;
-          try {
-            rect = target.getBoundingClientRect();
-          } catch (_) {
-            continue;
-          }
-          entries.push({
-            target,
-            contentRect: rect,
-            borderBoxSize: [],
-            contentBoxSize: [],
-            devicePixelContentBoxSize: [],
-          });
+    };
+    root.ResizeObserver.prototype._notify = function () {
+      if (!this._targets.length) return;
+      var entries = [];
+      for (var i = 0; i < this._targets.length; i++) {
+        var target = this._targets[i];
+        var rect;
+        try {
+          rect = target.getBoundingClientRect();
+        } catch (_) {
+          continue;
         }
-        if (entries.length) this._callback(entries, this);
+        entries.push({
+          target: target,
+          contentRect: rect,
+          borderBoxSize: [],
+          contentBoxSize: [],
+          devicePixelContentBoxSize: [],
+        });
       }
+      if (entries.length) this._callback(entries, this);
     };
-    if (typeof globalThis.requestAnimationFrame === "function") {
-      globalThis.requestAnimationFrame(tick);
+    if (typeof root.requestAnimationFrame === "function") {
+      root.requestAnimationFrame(tick);
     }
   }
 
-  if (typeof globalThis.queueMicrotask === "undefined") {
-    globalThis.queueMicrotask = function (callback) {
+  if (typeof root.queueMicrotask === "undefined") {
+    root.queueMicrotask = function (callback) {
       Promise.resolve().then(callback).catch(function () {});
     };
   }
