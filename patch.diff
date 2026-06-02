@@ -1,0 +1,88 @@
+--- core/process_manager.rs
++++ core/process_manager.rs
+@@ -14,6 +14,7 @@
+ use super::TabId;
+ use crate::ipc::{
+     self, BrowserMessage, IpcServer, RendererClient, RendererMessage,
++    IpcReceiver,
+ };
+
+ /// Process manager for spawning and managing child processes
+@@ -43,6 +44,20 @@
+     channel_id: String,
+ }
+
++/// Spawn a thread to forward IPC messages
++fn spawn_ipc_forwarder<T: serde::Serialize + for<'de> serde::Deserialize<'de> + Send + 'static, F: FnMut(T) -> bool + Send + 'static>(
++    rx: IpcReceiver<T>,
++    mut handler: F,
++) -> std::thread::JoinHandle<()> {
++    std::thread::spawn(move || {
++        while let Ok(msg) = rx.recv() {
++            if !handler(msg) {
++                break;
++            }
++        }
++    })
++}
++
+ impl ProcessManager {
+     /// Create process manager for multi-process mode
+     pub fn new_multi_process() -> Self {
+@@ -158,14 +173,13 @@ impl ProcessManager {
+         // Spawn a thread to read messages and handle them.
+         // For now, we just log them as there's no central router yet.
+         let event_tx = self.browser_events.lock().await.clone();
+-        std::thread::spawn(move || {
+-            while let Ok(msg) = rx_from_renderer.recv() {
+-                if let Some(ref tx) = event_tx {
+-                    let _ = tx.send(msg);
+-                } else {
+-                    debug!("Browser received message: {:?}", msg);
+-                }
++        spawn_ipc_forwarder(rx_from_renderer, move |msg| {
++            if let Some(ref tx) = event_tx {
++                let _ = tx.send(msg);
++            } else {
++                debug!("Browser received message: {:?}", msg);
+             }
++            true
+         });
+
+         // Store child process
+@@ -198,14 +212,13 @@ impl ProcessManager {
+
+         // Handle rx_from_renderer (Browser side)
+         let event_tx = self.browser_events.lock().await.clone();
+-        std::thread::spawn(move || {
+-            while let Ok(msg) = rx_from_renderer.recv() {
+-                if let Some(ref tx) = event_tx {
+-                    let _ = tx.send(msg);
+-                } else {
+-                    debug!("Browser received message (in-process): {:?}", msg);
+-                }
++        spawn_ipc_forwarder(rx_from_renderer, move |msg| {
++            if let Some(ref tx) = event_tx {
++                let _ = tx.send(msg);
++            } else {
++                debug!("Browser received message (in-process): {:?}", msg);
+             }
++            true
+         });
+
+         // Spawn renderer thread (in-process)
+@@ -216,12 +229,8 @@ impl ProcessManager {
+         // So we need to bridge rx_from_browser (IpcReceiver) to mpsc.
+         let (mpsc_tx, mpsc_rx) = tokio::sync::mpsc::unbounded_channel();
+
+-        std::thread::spawn(move || {
+-            while let Ok(msg) = rx_from_browser.recv() {
+-                if mpsc_tx.send(msg).is_err() {
+-                    break;
+-                }
+-            }
++        spawn_ipc_forwarder(rx_from_browser, move |msg| {
++            mpsc_tx.send(msg).is_ok()
+         });
+
+         // We can't easily spawn RendererProcess here because we don't have access to ServoConfig easily?
