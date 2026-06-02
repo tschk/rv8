@@ -291,7 +291,12 @@ impl ServoEmbedder {
 
     /// Handle mouse event
     pub fn handle_mouse_move(&mut self, x: f32, y: f32) {
-        // TODO: Forward to Servo's event handling
+        #[cfg(feature = "servo-render")]
+        if let Some(ref mut servo) = self.servo {
+            servo.handle_mouse_move(x, y);
+            self.frame_generation = self.frame_generation.saturating_add(1);
+            return;
+        }
         debug!("Mouse move: ({}, {})", x, y);
     }
 

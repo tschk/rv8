@@ -205,6 +205,17 @@ impl ServoRenderer {
         }
     }
 
+    pub fn handle_mouse_move(&mut self, x: f32, y: f32) {
+        use embedder_traits::{InputEvent, MouseMoveEvent, WebViewPoint};
+        use servo::DevicePoint;
+
+        if let Some(webview) = &self.webview {
+            let point = WebViewPoint::Device(DevicePoint::new(x, y));
+            webview.notify_input_event(InputEvent::MouseMove(MouseMoveEvent::new(point)));
+            self.tick();
+        }
+    }
+
     pub fn handle_mouse_click_at(&mut self, x: f32, y: f32) {
         let script = build_click_script(x, y);
         let _ = self.evaluate_script_sync(&script);
