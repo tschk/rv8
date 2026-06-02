@@ -227,7 +227,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_tab_set_title() {
-        // Setup dependencies
         let temp_dir = tempfile::tempdir().unwrap();
         let storage = Arc::new(StorageManager::open(temp_dir.path(), true).unwrap());
         let network = Arc::new(NetworkManager::new(storage).await.unwrap());
