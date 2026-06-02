@@ -110,4 +110,40 @@ mod tests {
         assert_eq!(entry.url, initial_url);
         assert_eq!(entry.title, None);
     }
+
+    #[test]
+    fn test_push_adds_entry() {
+        let mut nav = NavigationController::new("https://example.com".to_string());
+        assert_eq!(nav.entries().len(), 1);
+        assert_eq!(nav.current_index(), 0);
+
+        nav.push("https://example.org".to_string());
+        assert_eq!(nav.entries().len(), 2);
+        assert_eq!(nav.current_index(), 1);
+        assert_eq!(nav.current().unwrap().url, "https://example.org");
+        assert!(nav.can_go_back());
+        assert!(!nav.can_go_forward());
+    }
+
+    #[test]
+    fn test_push_truncates_forward_history() {
+        let mut nav = NavigationController::new("https://example.com".to_string());
+        nav.push("https://example.org".to_string());
+        nav.push("https://example.net".to_string());
+
+        assert_eq!(nav.entries().len(), 3);
+        assert_eq!(nav.current_index(), 2);
+
+        nav.go_back();
+        assert_eq!(nav.current_index(), 1);
+        assert_eq!(nav.current().unwrap().url, "https://example.org");
+
+        nav.push("https://new.example.com".to_string());
+
+        assert_eq!(nav.entries().len(), 3);
+        assert_eq!(nav.current_index(), 2);
+        assert_eq!(nav.current().unwrap().url, "https://new.example.com");
+
+        assert!(!nav.can_go_forward());
+    }
 }
