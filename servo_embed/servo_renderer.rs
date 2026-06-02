@@ -29,9 +29,8 @@ struct EmbedderDelegate {
 }
 
 impl WebViewDelegate for EmbedderDelegate {
-    fn notify_new_frame_ready(&self, webview: WebView) {
+    fn notify_new_frame_ready(&self, _webview: WebView) {
         self.frame_ready.store(true, Ordering::Relaxed);
-        webview.paint();
     }
 
     fn notify_load_status_changed(&self, _webview: WebView, status: LoadStatus) {
@@ -136,7 +135,11 @@ impl ServoRenderer {
             );
         }
 
-        let load_timeout = Duration::from_secs(180);
+        let load_timeout_secs = std::env::var("RV8_LOAD_TIMEOUT_SECS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(180);
+        let load_timeout = Duration::from_secs(load_timeout_secs);
         let load_ok = self
             .pump_until(|| self.load_complete.load(Ordering::Relaxed), load_timeout)
             .is_ok();
