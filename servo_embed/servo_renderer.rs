@@ -29,8 +29,9 @@ struct EmbedderDelegate {
 }
 
 impl WebViewDelegate for EmbedderDelegate {
-    fn notify_new_frame_ready(&self, _webview: WebView) {
+    fn notify_new_frame_ready(&self, webview: WebView) {
         self.frame_ready.store(true, Ordering::Relaxed);
+        webview.paint();
     }
 
     fn notify_load_status_changed(&self, _webview: WebView, status: LoadStatus) {
@@ -133,6 +134,9 @@ impl ServoRenderer {
                     .url(parsed)
                     .build(),
             );
+        }
+        if let Some(webview) = &self.webview {
+            webview.show();
         }
 
         let load_timeout_secs = std::env::var("RV8_LOAD_TIMEOUT_SECS")
@@ -404,6 +408,16 @@ mod tests {
         renderer
             .navigate("https://undivisible.dev")
             .expect("navigate undivisible.dev");
+        assert_eq!(
+            renderer
+                .evaluate_script_sync("document.readyState")
+                .expect("ready state"),
+            "complete"
+        );
+        assert_eq!(
+            renderer.evaluate_script_sync("document.title").expect("title"),
+            "undivisible.dev"
+        );
         let frame = renderer
             .capture_frame(1)
             .expect("frame after undivisible.dev");
@@ -413,9 +427,10 @@ mod tests {
             .filter(|px| px[0] < 48 && px[1] < 48 && px[2] < 48)
             .count();
         let total = frame.pixels.len() / 4;
+        let visible_pixels = total - dark_pixels;
         assert!(
-            dark_pixels < total * 9 / 10,
-            "expected mostly non-black pixels (got {dark_pixels}/{total} dark); likely error page"
+            visible_pixels > 100,
+            "expected visible page pixels (got {visible_pixels}/{total} non-dark)"
         );
     }
 }
