@@ -217,3 +217,34 @@ impl Tab {
         self.muted = !self.muted;
     }
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ipc::{RendererClient, RendererMessage, channel};
+    use crate::networking::NetworkManager;
+    use crate::storage::StorageManager;
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn test_tab_set_title() {
+        // Setup dependencies
+        let temp_dir = tempfile::tempdir().unwrap();
+        let storage = Arc::new(StorageManager::open(temp_dir.path(), true).unwrap());
+        let network = Arc::new(NetworkManager::new(storage).await.unwrap());
+
+        let (tx, _rx) = channel::<RendererMessage>().unwrap();
+        let renderer_client = RendererClient::new(1, tx);
+
+        let id = TabId(1);
+        let url = "https://example.com".to_string();
+
+        let mut tab = Tab::new(id, url, renderer_client, network).await.unwrap();
+
+        assert_eq!(tab.title(), "");
+
+        let new_title = "Example Domain".to_string();
+        tab.set_title(new_title.clone());
+
+        assert_eq!(tab.title(), new_title);
+    }
+}
