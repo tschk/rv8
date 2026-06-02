@@ -17,6 +17,7 @@ pub enum PreloadHint {
 
 /// Resource preloader
 pub struct Preloader {
+    client: reqwest::Client,
     /// Active preload hints
     hints: HashSet<PreloadHint>,
     /// Completed preloads
@@ -26,6 +27,7 @@ pub struct Preloader {
 impl Preloader {
     pub fn new() -> Self {
         Preloader {
+            client: reqwest::Client::new(),
             hints: HashSet::new(),
             completed: HashSet::new(),
         }
@@ -48,17 +50,24 @@ impl Preloader {
                     // Trigger DNS lookup
                     let _ = tokio::net::lookup_host(format!("{}:443", domain)).await;
                 }
-                PreloadHint::Preconnect(_origin) => {
+                PreloadHint::Preconnect(origin) => {
                     // Establish connection
                     // TODO: Implement connection pool warming
+                    let _ = self.client.head(origin).send().await;
                 }
-                PreloadHint::Prefetch(_url) => {
+                PreloadHint::Prefetch(url) => {
                     // Fetch resource to cache
                     // TODO: Implement prefetch
+                    if let Ok(response) = self.client.get(url).send().await {
+                        let _ = response.bytes().await;
+                    }
                 }
-                PreloadHint::Prerender(_url) => {
+                PreloadHint::Prerender(url) => {
                     // Prerender page in background
                     // TODO: Implement prerendering
+                    if let Ok(response) = self.client.get(url).send().await {
+                        let _ = response.bytes().await;
+                    }
                 }
             }
             self.completed.insert(hint);
