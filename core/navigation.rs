@@ -109,7 +109,5 @@ mod tests {
         let entry = controller.current().expect("Expected a current entry");
         assert_eq!(entry.url, initial_url);
         assert_eq!(entry.title, None);
-        // The timestamp should be relatively close to now, but we can't easily check it precisely without mocking.
-        // It's sufficient that it exists and is populated.
     }
 }
