@@ -24,6 +24,24 @@ where
     ipc::channel().map_err(|e| e.to_string())
 }
 
+/// Bridge a blocking `IpcReceiver` to an async `tokio::sync::mpsc::UnboundedSender`.
+/// This spawns a background thread that continuously receives messages from the IPC channel
+/// and forwards them to the MPSC channel until either channel disconnects.
+pub fn bridge_ipc_receiver<T>(
+    rx: IpcReceiver<T>,
+    tx: tokio::sync::mpsc::UnboundedSender<T>,
+) where
+    T: serde::Serialize + for<'de> serde::Deserialize<'de> + Send + 'static,
+{
+    std::thread::spawn(move || {
+        while let Ok(msg) = rx.recv() {
+            if tx.send(msg).is_err() {
+                break;
+            }
+        }
+    });
+}
+
 /// IPC endpoint identifier
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ProcessType {
