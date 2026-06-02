@@ -41,8 +41,8 @@ impl V8ContextData {
             timer_manager,
             local_storage,
             session_storage,
-            timer_callbacks: RwLock::new(HashMap::new()),
-            event_listeners: RwLock::new(HashMap::new()),
+            timer_callbacks: Default::default(),
+            event_listeners: Default::default(),
         }
     }
 }
