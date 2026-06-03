@@ -52,6 +52,7 @@ ipc/             → ipc-channel messages
 - No `mono-protocol`, `mono-mesh`, `mono-gateway`, or sync envelopes.
 - No `TransferClass`, device trust, or 2FA flows.
 - Mono consumes RV8 via path dependency + `mono-adapters::rv8` only.
+- Never push to upstream `servo/servo`; use the `tschk/servo` fork for RV8 Servo work.
 
 ## Code style
 
