@@ -135,6 +135,7 @@ fn run_renderer_process(args: &[String]) {
         let (mpsc_tx, mpsc_rx) = tokio::sync::mpsc::unbounded_channel();
 
         // Spawn bridge thread
+        // Loop for the rest of messages
         rv8::ipc::bridge_ipc_receiver(rx_from_browser, mpsc_tx);
 
         let config = rv8::servo_embed::ServoConfig {
