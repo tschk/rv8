@@ -216,13 +216,7 @@ impl ProcessManager {
         // So we need to bridge rx_from_browser (IpcReceiver) to mpsc.
         let (mpsc_tx, mpsc_rx) = tokio::sync::mpsc::unbounded_channel();
 
-        std::thread::spawn(move || {
-            while let Ok(msg) = rx_from_browser.recv() {
-                if mpsc_tx.send(msg).is_err() {
-                    break;
-                }
-            }
-        });
+        crate::ipc::bridge_ipc_receiver(rx_from_browser, mpsc_tx);
 
         // We can't easily spawn RendererProcess here because we don't have access to ServoConfig easily?
         // But let's assume we can construct it.
