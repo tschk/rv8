@@ -50,15 +50,15 @@ impl Preloader {
                 }
                 PreloadHint::Preconnect(_origin) => {
                     // Establish connection
-                    // TODO(#142): Implement connection pool warming
+                    // TODO: Implement connection pool warming
                 }
                 PreloadHint::Prefetch(_url) => {
                     // Fetch resource to cache
-                    // TODO(#143): Implement prefetch
+                    // TODO: Implement prefetch
                 }
                 PreloadHint::Prerender(_url) => {
                     // Prerender page in background
-                    // TODO(#144): Implement prerendering
+                    // TODO: Implement prerendering
                 }
             }
             self.completed.insert(hint);
