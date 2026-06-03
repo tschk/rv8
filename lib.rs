@@ -77,6 +77,7 @@ pub use js::JsValue;
 pub use js::JsEngine;
 pub use networking::{NetworkManager, Request, Response};
 pub use optimizations::{OptimizationFlags, PerformanceMonitor};
+#[allow(deprecated)]
 pub use renderer::{RenderFrame, WebView};
 #[cfg(feature = "servo-render")]
 pub use servo_embed::viewport::{ServoViewport, ViewportSnapshot};

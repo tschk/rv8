@@ -9,6 +9,7 @@ pub use process::RendererProcess;
 pub use render_frame::RenderFrame;
 
 /// Web view for rendering content
+#[deprecated(note = "use the Servo embedder viewport path")]
 pub struct WebView {
     // TODO: Implement WebView
 }
