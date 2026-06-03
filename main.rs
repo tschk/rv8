@@ -148,7 +148,6 @@ fn run_renderer_process(args: &[String]) {
         // Bridge rx_from_browser (blocking IPC) to mpsc for tokio (async)
         let (mpsc_tx, mpsc_rx) = tokio::sync::mpsc::unbounded_channel();
 
-        // Forward any pending messages
         for msg in pending_messages {
             let _ = mpsc_tx.send(msg);
         }
