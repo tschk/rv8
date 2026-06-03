@@ -2,7 +2,7 @@
 //!
 //! Launches the RV8 browser with multi-process architecture.
 
-use log::{error, info};
+use log::{error, info, warn};
 use rv8::compositor;
 use rv8::networking;
 use std::env;
@@ -124,15 +124,33 @@ fn run_renderer_process(args: &[String]) {
             .expect("Failed to send sender to browser");
 
         // Wait for init message which contains the sender to browser
-        let msg = rx_from_browser.recv().expect("Failed to receive init");
+        let mut browser_tx_opt = None;
+        let mut pending_messages = Vec::new();
 
-        let browser_tx = match msg {
-            RendererMessage::Initialize { browser_tx } => browser_tx,
-            _ => panic!("Unexpected first message: {:?}", msg),
+        while let Ok(msg) = rx_from_browser.recv() {
+            if let RendererMessage::Initialize { browser_tx } = msg {
+                browser_tx_opt = Some(browser_tx);
+                break;
+            } else {
+                warn!("Received unexpected message before Initialize: {:?}", msg);
+                pending_messages.push(msg);
+            }
+        }
+
+        let browser_tx = match browser_tx_opt {
+            Some(tx) => tx,
+            None => {
+                error!("Failed to receive Initialize message before channel closed");
+                return;
+            }
         };
 
         // Bridge rx_from_browser (blocking IPC) to mpsc for tokio (async)
         let (mpsc_tx, mpsc_rx) = tokio::sync::mpsc::unbounded_channel();
+
+        for msg in pending_messages {
+            let _ = mpsc_tx.send(msg);
+        }
 
         // Spawn bridge thread
         // Loop for the rest of messages
