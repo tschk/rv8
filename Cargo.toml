@@ -133,6 +133,3 @@ panic = "abort"
 [profile.release-with-debug]
 inherits = "release"
 debug = true
-
-[patch.crates-io]
-surfman = { path = "third_party/servo/support/patches/surfman" }
