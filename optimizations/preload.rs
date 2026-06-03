@@ -48,15 +48,15 @@ impl Preloader {
                     // Trigger DNS lookup
                     let _ = tokio::net::lookup_host(format!("{}:443", domain)).await;
                 }
-                PreloadHint::Preconnect(origin) => {
+                PreloadHint::Preconnect(_origin) => {
                     // Establish connection
                     // TODO: Implement connection pool warming
                 }
-                PreloadHint::Prefetch(url) => {
+                PreloadHint::Prefetch(_url) => {
                     // Fetch resource to cache
                     // TODO: Implement prefetch
                 }
-                PreloadHint::Prerender(url) => {
+                PreloadHint::Prerender(_url) => {
                     // Prerender page in background
                     // TODO: Implement prerendering
                 }
