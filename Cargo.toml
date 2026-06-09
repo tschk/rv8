@@ -47,7 +47,7 @@ soliloquy_browser_optimizations = { path = "../soliloquy/src" }
 
 # gpui = { git = "https://github.com/zed-industries/zed", package = "gpui" }
 gpui = { version = "=0.2.2", optional = true, default-features = false, features = ["font-kit"] }
-crepuscularity-gpui = { path = "../crepuscularity/crates/crepuscularity-gpui", optional = true }
+crepuscularity-gpui = { version = "0.1", optional = true }
 
 # Networking
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "cookies", "gzip", "brotli"] }

@@ -1,6 +1,6 @@
 //! Resource preloading and prefetching
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 /// Preload hint types
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -22,6 +22,8 @@ pub struct Preloader {
     hints: HashSet<PreloadHint>,
     /// Completed preloads
     completed: HashSet<PreloadHint>,
+    /// Resource cache
+    pub resource_cache: HashMap<String, bytes::Bytes>,
 }
 
 impl Preloader {
@@ -30,6 +32,7 @@ impl Preloader {
             client: reqwest::Client::new(),
             hints: HashSet::new(),
             completed: HashSet::new(),
+            resource_cache: HashMap::new(),
         }
     }
 
@@ -52,21 +55,22 @@ impl Preloader {
                 }
                 PreloadHint::Preconnect(origin) => {
                     // Establish connection
-                    // TODO: Implement connection pool warming
                     let _ = self.client.head(origin).send().await;
                 }
                 PreloadHint::Prefetch(url) => {
                     // Fetch resource to cache
-                    // TODO: Implement prefetch
                     if let Ok(response) = self.client.get(url).send().await {
-                        let _ = response.bytes().await;
+                        if let Ok(bytes) = response.bytes().await {
+                            self.resource_cache.insert(url.clone(), bytes);
+                        }
                     }
                 }
                 PreloadHint::Prerender(url) => {
                     // Prerender page in background
-                    // TODO: Implement prerendering
                     if let Ok(response) = self.client.get(url).send().await {
-                        let _ = response.bytes().await;
+                        if let Ok(bytes) = response.bytes().await {
+                            self.resource_cache.insert(url.clone(), bytes);
+                        }
                     }
                 }
             }
