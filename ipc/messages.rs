@@ -3,6 +3,8 @@
 //! Defines all message types for inter-process communication.
 
 use serde::{Deserialize, Serialize};
+
+#[cfg(feature = "soliloquy_browser_optimizations")]
 use soliloquy_browser_optimizations::runtime::{SurfaceDescriptor, SurfaceId, SurfaceSize};
 
 use crate::js::JsValue;
@@ -109,25 +111,30 @@ pub enum RendererMessage {
 /// Messages to/from GPU process
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum GpuMessage {
+    #[cfg(feature = "soliloquy_browser_optimizations")]
     /// Create surface for tab
     CreateSurface {
         tab_id: u64,
         surface: SurfaceDescriptor,
     },
+    #[cfg(feature = "soliloquy_browser_optimizations")]
     /// Destroy surface
     DestroySurface { tab_id: u64, surface_id: SurfaceId },
+    #[cfg(feature = "soliloquy_browser_optimizations")]
     /// Resize surface
     ResizeSurface {
         tab_id: u64,
         surface_id: SurfaceId,
         size: SurfaceSize,
     },
+    #[cfg(feature = "soliloquy_browser_optimizations")]
     /// Submit frame for compositing
     SubmitFrame {
         tab_id: u64,
         surface_id: SurfaceId,
         frame_id: u64,
     },
+    #[cfg(feature = "soliloquy_browser_optimizations")]
     /// Present composited frame
     Present { tab_id: u64, surface_id: SurfaceId },
     /// Update display list

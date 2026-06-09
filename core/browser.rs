@@ -359,3 +359,53 @@ impl Browser {
         &self.storage
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::config::BrowserConfig;
+
+    #[tokio::test]
+    async fn test_browser_navigate_no_active_tab() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = BrowserConfig::default();
+        config.data_dirs.profile_dir = temp_dir.path().to_path_buf();
+        config.incognito = true;
+        config.multi_process = false;
+
+        let browser = Browser::new(config).await.unwrap();
+
+        // Initially no active tab
+        assert!(browser.active_tab().await.is_none());
+
+        // Navigation should fail
+        let result = browser.navigate("https://example.com").await;
+        assert_eq!(result, Err("No active tab".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_browser_navigate_with_active_tab() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = BrowserConfig::default();
+        config.data_dirs.profile_dir = temp_dir.path().to_path_buf();
+        config.incognito = true;
+        config.multi_process = false;
+
+        let mut browser = Browser::new(config).await.unwrap();
+
+        // Create a new tab
+        let tab_id = browser.new_tab("https://example.com").await.unwrap();
+
+        // Active tab should be the one we just created
+        assert_eq!(browser.active_tab().await, Some(tab_id));
+
+        // Navigation should succeed
+        let result = browser.navigate("https://example.org").await;
+        assert!(result.is_ok());
+
+        // Verify the tab's URL was updated
+        let tabs = browser.tabs.read().await;
+        let tab = tabs.get(&tab_id).unwrap().lock().await;
+        assert_eq!(tab.url(), "https://example.org/");
+    }
+}

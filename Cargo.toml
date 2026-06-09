@@ -43,11 +43,11 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "sync", "time", "fs", "net", "io-util", "macros"] }
 futures = "0.3"
 async-channel = "2.2"
-soliloquy_browser_optimizations = { path = "../soliloquy/src" }
+# soliloquy_browser_optimizations = { path = "../soliloquy/src", optional = true }
 
 # gpui = { git = "https://github.com/zed-industries/zed", package = "gpui" }
 gpui = { version = "=0.2.2", optional = true, default-features = false, features = ["font-kit"] }
-crepuscularity-gpui = { path = "../crepuscularity/crates/crepuscularity-gpui", optional = true }
+# crepuscularity-gpui = { path = "../crepuscularity/crates/crepuscularity-gpui", optional = true }
 
 # Networking
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "cookies", "gzip", "brotli"] }
@@ -107,7 +107,7 @@ gpu-compositing = []
 hardware-acceleration = []
 servo-render = ["dep:servo", "dep:dpi", "dep:rustls", "dep:servo-embedder-traits"]
 rv8-v8 = ["dep:rusty_v8"]
-chrome = ["dep:gpui", "dep:crepuscularity-gpui"]
+chrome = ["dep:gpui"]
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["async_tokio"] }

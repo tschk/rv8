@@ -1,6 +1,6 @@
 //! Process manager for Chrome-like multi-process architecture
 
-use log::{debug, info};
+use log::{debug, info, warn};
 #[cfg(target_os = "linux")]
 use nix::sched::sched_setaffinity;
 #[cfg(target_os = "linux")]
