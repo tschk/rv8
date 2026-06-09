@@ -205,6 +205,49 @@ mod tests {
     }
 
     #[test]
+    fn test_initialize() {
+        use crate::servo_embed::dom::DomTree;
+        use crate::servo_embed::web_apis::{ConsoleApi, StorageApi, TimerManager};
+        use parking_lot::RwLock;
+        use std::sync::Arc;
+
+        let mut engine = JsEngine::new().unwrap();
+        let dom_tree = Arc::new(RwLock::new(DomTree::new()));
+        let console_api = Arc::new(RwLock::new(ConsoleApi::new()));
+        let timer_manager = Arc::new(RwLock::new(TimerManager::new()));
+        let local_storage = Arc::new(RwLock::new(StorageApi::new(1024)));
+        let session_storage = Arc::new(RwLock::new(StorageApi::new(1024)));
+
+        // Verify initial state has no DOM bindings
+        let is_document_defined = engine.execute_to_string("typeof document !== 'undefined'").unwrap();
+        assert_eq!(is_document_defined, "false");
+
+        // Initialize and verify bindings are injected
+        engine.initialize(V8ContextData::new(
+            dom_tree.clone(),
+            console_api.clone(),
+            timer_manager.clone(),
+            local_storage.clone(),
+            session_storage.clone(),
+        ));
+
+        let is_document_defined = engine.execute_to_string("typeof document !== 'undefined'").unwrap();
+        assert_eq!(is_document_defined, "true");
+
+        // Re-initialize to ensure old context data is cleaned up properly without panicking
+        engine.initialize(V8ContextData::new(
+            dom_tree,
+            console_api,
+            timer_manager,
+            local_storage,
+            session_storage,
+        ));
+
+        let is_document_defined = engine.execute_to_string("typeof document !== 'undefined'").unwrap();
+        assert_eq!(is_document_defined, "true");
+    }
+
+    #[test]
     fn test_dom_bindings() {
         use crate::servo_embed::dom::DomTree;
         use crate::servo_embed::web_apis::{ConsoleApi, StorageApi, TimerManager};
