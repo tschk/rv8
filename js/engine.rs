@@ -191,6 +191,16 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_version() {
+        let version = JsEngine::version();
+        assert!(!version.is_empty(), "Version string should not be empty");
+        assert!(
+            version.chars().any(|c| c.is_ascii_digit()),
+            "Version string should contain at least one digit"
+        );
+    }
+
+    #[test]
     fn test_basic_execution() {
         let mut engine = JsEngine::new().unwrap();
         let result = engine.execute_to_string("1 + 1").unwrap();
