@@ -123,8 +123,12 @@ impl ProcessManager {
                 % core_count;
             let pid = nix::unistd::Pid::from_raw(child.id() as i32);
             let mut cpuset = CpuSet::new();
-            cpuset.set(core).unwrap();
-            if let Err(e) = sched_setaffinity(pid, &cpuset) {
+            if let Err(e) = cpuset.set(core) {
+                warn!(
+                    "Failed to add core {} to cpuset for renderer {}: {}",
+                    core, tab_id.0, e
+                );
+            } else if let Err(e) = sched_setaffinity(pid, &cpuset) {
                 warn!(
                     "Failed to set CPU affinity for renderer {} to core {}: {}",
                     tab_id.0, core, e
