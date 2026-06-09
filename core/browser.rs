@@ -359,3 +359,73 @@ impl Browser {
         &self.storage
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    async fn create_test_browser() -> (Browser, tempfile::TempDir) {
+        let dir = tempdir().unwrap();
+        let mut config = BrowserConfig::default();
+        config.user_data_dir = dir.path().to_path_buf();
+        config.data_dirs.profile_dir = dir.path().to_path_buf();
+        config.data_dirs.cache_dir = dir.path().join("cache");
+        config.data_dirs.downloads_dir = dir.path().join("downloads");
+        config.data_dirs.state_dir = dir.path().join("state");
+        config.data_dirs.logs_dir = dir.path().join("logs");
+        config.data_dirs.terminal_state_dir = dir.path().join("terminal");
+
+        let browser = Browser::new(config).await.unwrap();
+        (browser, dir)
+    }
+
+
+    #[tokio::test]
+    async fn test_navigate() {
+        let (mut browser, _dir) = create_test_browser().await;
+
+        let tab_id = browser.new_tab("https://example.com").await.unwrap();
+
+        // Ensure the active tab is correctly set by new_tab
+        assert_eq!(browser.active_tab().await, Some(tab_id));
+
+        browser.navigate("https://rust-lang.org").await.unwrap();
+
+        let tabs = browser.tabs.read().await;
+        let tab = tabs.get(&tab_id).unwrap();
+        let tab = tab.lock().await;
+
+        assert_eq!(tab.url(), "https://rust-lang.org/");
+    }
+
+    #[tokio::test]
+    async fn test_navigate_no_active_tab() {
+        let (browser, _dir) = create_test_browser().await;
+
+        assert_eq!(browser.active_tab().await, None);
+
+        let result = browser.navigate("https://rust-lang.org").await;
+        assert_eq!(result, Err("No active tab".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_navigate_tab() {
+        let (mut browser, _dir) = create_test_browser().await;
+
+        let tab_id = browser.new_tab("https://example.com").await.unwrap();
+
+        browser.navigate_tab(tab_id, "https://github.com").await.unwrap();
+
+        let tabs = browser.tabs.read().await;
+        let tab = tabs.get(&tab_id).unwrap();
+        let tab = tab.lock().await;
+
+        assert_eq!(tab.url(), "https://github.com/");
+        drop(tab);
+        drop(tabs);
+
+        let result = browser.navigate_tab(TabId(999), "https://example.com").await;
+        assert_eq!(result, Err("Tab 999 not found".to_string()));
+    }
+}
