@@ -205,6 +205,45 @@ mod tests {
     }
 
     #[test]
+    fn test_execute_to_string_various_types() {
+        let mut engine = JsEngine::new().unwrap();
+
+        // Null and undefined
+        assert_eq!(engine.execute_to_string("null").unwrap(), "null");
+        assert_eq!(engine.execute_to_string("undefined").unwrap(), "undefined");
+
+        // Booleans
+        assert_eq!(engine.execute_to_string("true").unwrap(), "true");
+        assert_eq!(engine.execute_to_string("false").unwrap(), "false");
+
+        // Objects
+        assert_eq!(engine.execute_to_string("({ a: 1 })").unwrap(), "[object Object]");
+        assert_eq!(engine.execute_to_string("[1, 2, 3]").unwrap(), "1,2,3");
+
+        // Numbers
+        assert_eq!(engine.execute_to_string("42.5").unwrap(), "42.5");
+
+        // Functions
+        assert_eq!(engine.execute_to_string("(function() { return 1; })").unwrap(), "function() { return 1; }");
+    }
+
+    #[test]
+    fn test_execute_to_string_syntax_error() {
+        let mut engine = JsEngine::new().unwrap();
+        let result = engine.execute_to_string("this is not valid js!");
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Failed to compile script");
+    }
+
+    #[test]
+    fn test_execute_to_string_runtime_error() {
+        let mut engine = JsEngine::new().unwrap();
+        let result = engine.execute_to_string("throw new Error('test error');");
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Script execution failed");
+    }
+
+    #[test]
     fn test_dom_bindings() {
         use crate::servo_embed::dom::DomTree;
         use crate::servo_embed::web_apis::{ConsoleApi, StorageApi, TimerManager};
