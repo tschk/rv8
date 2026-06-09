@@ -191,6 +191,28 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_engine_new() {
+        let engine = JsEngine::new();
+        assert!(engine.is_ok());
+    }
+
+    #[test]
+    fn test_engine_new_multiple() {
+        // Test that multiple engines can be created without issues
+        // which verifies the `Once` initialization in `init_v8()` works correctly.
+        let engine1 = JsEngine::new();
+        assert!(engine1.is_ok());
+        let engine2 = JsEngine::new();
+        assert!(engine2.is_ok());
+    }
+
+    #[test]
+    fn test_engine_default() {
+        // Verifies the Default trait implementation does not panic
+        let _engine = JsEngine::default();
+    }
+
+    #[test]
     fn test_basic_execution() {
         let mut engine = JsEngine::new().unwrap();
         let result = engine.execute_to_string("1 + 1").unwrap();
