@@ -317,7 +317,7 @@ impl IpcServer {
         let (tx, rx) = ipc::channel().map_err(|e| e.to_string())?;
 
         {
-            let mut channels = self.channels.lock().unwrap();
+            let mut channels = self.channels.lock().unwrap_or_else(|e| e.into_inner());
             channels.insert(channel_id.to_string(), tx.clone());
         }
 
@@ -332,7 +332,7 @@ impl IpcServer {
     }
 
     pub async fn close_channel(&self, channel_id: &str) {
-        let mut channels = self.channels.lock().unwrap();
+        let mut channels = self.channels.lock().unwrap_or_else(|e| e.into_inner());
         channels.remove(channel_id);
     }
 }
