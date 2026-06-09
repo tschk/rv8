@@ -205,6 +205,29 @@ mod tests {
     }
 
     #[test]
+    fn test_perform_microtask_checkpoint() {
+        let mut engine = JsEngine::new().unwrap();
+
+        // V8's default microtask policy is Auto, so microtasks might run immediately
+        // after script execution. To test `perform_microtask_checkpoint` properly,
+        // we can change the microtask policy to Explicit.
+        engine.isolate.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
+
+        engine.execute(
+            "var microtask_run = false;
+             Promise.resolve().then(() => { microtask_run = true; });"
+        ).unwrap();
+
+        let before_checkpoint = engine.execute_to_string("microtask_run").unwrap();
+        assert_eq!(before_checkpoint, "false", "Microtask should not have run yet");
+
+        engine.perform_microtask_checkpoint();
+
+        let after_checkpoint = engine.execute_to_string("microtask_run").unwrap();
+        assert_eq!(after_checkpoint, "true", "Microtask should have run after checkpoint");
+    }
+
+    #[test]
     fn test_dom_bindings() {
         use crate::servo_embed::dom::DomTree;
         use crate::servo_embed::web_apis::{ConsoleApi, StorageApi, TimerManager};
