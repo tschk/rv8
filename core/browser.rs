@@ -359,3 +359,41 @@ impl Browser {
         &self.storage
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_set_active_tab() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = BrowserConfig::incognito();
+        config.user_data_dir = temp_dir.path().to_path_buf();
+        config.data_dirs.profile_dir = temp_dir.path().to_path_buf();
+
+        let mut browser = Browser::new(config).await.unwrap();
+
+        // Initially no active tab
+        assert!(browser.active_tab().await.is_none());
+
+        // Create a new tab, it should become active
+        let tab_id1 = browser.new_tab("https://example.com").await.unwrap();
+        assert_eq!(browser.active_tab().await, Some(tab_id1));
+
+        // Create a second tab, it should not automatically become active
+        let tab_id2 = browser.new_tab("https://example.org").await.unwrap();
+        assert_eq!(browser.active_tab().await, Some(tab_id1));
+
+        // Set the active tab to the second tab
+        browser.set_active_tab(tab_id2).await.unwrap();
+        assert_eq!(browser.active_tab().await, Some(tab_id2));
+
+        // Try to set the active tab to a non-existent tab
+        let result = browser.set_active_tab(TabId(999)).await;
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Tab 999 not found");
+
+        // The active tab should remain unchanged
+        assert_eq!(browser.active_tab().await, Some(tab_id2));
+    }
+}
