@@ -131,8 +131,8 @@ impl RendererProcess {
             RendererMessage::Scroll { delta_x, delta_y } => {
                 self.embedder.handle_scroll(delta_x, delta_y);
             }
-            RendererMessage::Focus { focused: _ } => {
-                // TODO: Handle focus
+            RendererMessage::Focus { focused } => {
+                self.embedder.handle_focus(focused);
             }
             RendererMessage::Visibility { visible: _ } => {
                 // TODO: Handle visibility

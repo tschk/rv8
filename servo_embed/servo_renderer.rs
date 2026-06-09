@@ -205,6 +205,18 @@ impl ServoRenderer {
         }
     }
 
+    pub fn handle_focus(&mut self, focused: bool) {
+        if let Some(webview) = &self.webview {
+            if focused {
+                webview.focus();
+            } else {
+                webview.blur();
+            }
+            self.frame_ready.store(true, Ordering::Relaxed);
+            self.tick();
+        }
+    }
+
     pub fn handle_mouse_move(&mut self, x: f32, y: f32) {
         use embedder_traits::{InputEvent, MouseMoveEvent, WebViewPoint};
         use servo::DevicePoint;
@@ -426,7 +438,9 @@ mod tests {
             "complete"
         );
         assert_eq!(
-            renderer.evaluate_script_sync("document.title").expect("title"),
+            renderer
+                .evaluate_script_sync("document.title")
+                .expect("title"),
             "undivisible.dev"
         );
         let frame = renderer
