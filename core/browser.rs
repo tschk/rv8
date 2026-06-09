@@ -359,3 +359,55 @@ impl Browser {
         &self.storage
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::BrowserConfig;
+
+    #[tokio::test]
+    async fn test_navigate_tab_success() {
+        let mut config = BrowserConfig::incognito();
+        // Use a temp directory for storage manager initialization
+        config.data_dirs.profile_dir = tempfile::tempdir().unwrap().path().to_path_buf();
+
+        let mut browser = Browser::new(config).await.unwrap();
+
+        let initial_url = "https://example.com";
+        let tab_id = browser.new_tab(initial_url).await.unwrap();
+
+        // Ensure initial navigation worked
+        {
+            let tabs = browser.tabs.read().await;
+            let tab = tabs.get(&tab_id).unwrap().lock().await;
+            assert_eq!(tab.url(), "https://example.com/");
+        }
+
+        // Navigate to new URL
+        let new_url = "https://example.org";
+        browser.navigate_tab(tab_id, new_url).await.unwrap();
+
+        // Verify state is updated
+        {
+            let tabs = browser.tabs.read().await;
+            let tab = tabs.get(&tab_id).unwrap().lock().await;
+            assert_eq!(tab.url(), "https://example.org/");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_navigate_tab_not_found() {
+        let mut config = BrowserConfig::incognito();
+        config.data_dirs.profile_dir = tempfile::tempdir().unwrap().path().to_path_buf();
+
+        let browser = Browser::new(config).await.unwrap();
+
+        // Attempt to navigate a non-existent tab (id 999)
+        let invalid_tab_id = TabId(999);
+        let result = browser.navigate_tab(invalid_tab_id, "https://example.com").await;
+
+        // Verify the expected error is returned
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Tab 999 not found");
+    }
+}
