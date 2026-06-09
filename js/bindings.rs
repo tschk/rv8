@@ -348,7 +348,9 @@ fn set_timeout_callback(
     args: v8::FunctionCallbackArguments,
     mut rv: v8::ReturnValue,
 ) {
-    let callback = v8::Local::<v8::Function>::try_from(args.get(0)).unwrap();
+    let Ok(callback) = v8::Local::<v8::Function>::try_from(args.get(0)) else {
+        return;
+    };
     let delay = args.get(1).integer_value(scope).unwrap_or(0) as u64;
 
     let data = get_context_data(scope);
@@ -367,7 +369,9 @@ fn set_interval_callback(
     args: v8::FunctionCallbackArguments,
     mut rv: v8::ReturnValue,
 ) {
-    let callback = v8::Local::<v8::Function>::try_from(args.get(0)).unwrap();
+    let Ok(callback) = v8::Local::<v8::Function>::try_from(args.get(0)) else {
+        return;
+    };
     let interval = args.get(1).integer_value(scope).unwrap_or(0) as u64;
 
     let data = get_context_data(scope);
