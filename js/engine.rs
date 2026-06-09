@@ -294,4 +294,38 @@ mod tests {
         assert_eq!(engine.dispatch_event(&event), 1);
         assert_eq!(engine.execute_to_string("seen").unwrap(), "click:7:9");
     }
+
+    #[test]
+    fn test_dispatch_event_no_listeners() {
+        use crate::servo_embed::dom::{DomEvent, DomTree};
+        use crate::servo_embed::web_apis::{ConsoleApi, StorageApi, TimerManager};
+        use parking_lot::RwLock;
+        use std::sync::Arc;
+
+        let mut engine = JsEngine::new().unwrap();
+        let dom_tree = Arc::new(RwLock::new(DomTree::new()));
+        let console_api = Arc::new(RwLock::new(ConsoleApi::new()));
+        let timer_manager = Arc::new(RwLock::new(TimerManager::new()));
+        let local_storage = Arc::new(RwLock::new(StorageApi::new(1024)));
+        let session_storage = Arc::new(RwLock::new(StorageApi::new(1024)));
+
+        engine.initialize(V8ContextData::new(
+            dom_tree.clone(),
+            console_api,
+            timer_manager,
+            local_storage,
+            session_storage,
+        ));
+
+        let event = DomEvent {
+            event_type: "custom_event".to_string(),
+            target_id: dom_tree.read().document_id(),
+            client_x: None,
+            client_y: None,
+            button: None,
+            key: None,
+        };
+
+        assert_eq!(engine.dispatch_event(&event), 0);
+    }
 }
