@@ -294,4 +294,48 @@ mod tests {
         assert_eq!(engine.dispatch_event(&event), 1);
         assert_eq!(engine.execute_to_string("seen").unwrap(), "click:7:9");
     }
+
+    #[test]
+    fn test_timer_callback() {
+        use crate::servo_embed::dom::DomTree;
+        use crate::servo_embed::web_apis::{ConsoleApi, StorageApi, TimerManager};
+        use parking_lot::RwLock;
+        use std::sync::Arc;
+
+        let mut engine = JsEngine::new().unwrap();
+        let dom_tree = Arc::new(RwLock::new(DomTree::new()));
+        let console_api = Arc::new(RwLock::new(ConsoleApi::new()));
+        let timer_manager = Arc::new(RwLock::new(TimerManager::new()));
+        let local_storage = Arc::new(RwLock::new(StorageApi::new(1024)));
+        let session_storage = Arc::new(RwLock::new(StorageApi::new(1024)));
+
+        engine.initialize(V8ContextData::new(
+            dom_tree,
+            console_api,
+            timer_manager,
+            local_storage,
+            session_storage,
+        ));
+
+        engine
+            .execute(
+                "var timerFired = false;
+                 var timerId = setTimeout(function() {
+                     timerFired = true;
+                 }, 100);",
+            )
+            .unwrap();
+
+        let timer_id_str = engine.execute_to_string("timerId").unwrap();
+        let timer_id: u64 = timer_id_str.parse().unwrap();
+
+        assert_eq!(engine.execute_to_string("timerFired").unwrap(), "false");
+
+        engine.call_timer_callback(timer_id);
+
+        assert_eq!(engine.execute_to_string("timerFired").unwrap(), "true");
+
+        // Test non-existent timer callback
+        engine.call_timer_callback(9999);
+    }
 }
