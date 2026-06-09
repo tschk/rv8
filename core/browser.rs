@@ -359,3 +359,48 @@ impl Browser {
         &self.storage
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::config::{BrowserConfig, BrowserDataDirs};
+    use crate::core::tab::TabId;
+    use std::path::PathBuf;
+
+    #[tokio::test]
+    async fn test_active_tab_state() {
+        // Create a temporary directory for isolation
+        let temp_dir = tempfile::tempdir().unwrap();
+
+        // Setup isolated config
+        let mut data_dirs = BrowserDataDirs::default();
+        data_dirs.profile_dir = temp_dir.path().to_path_buf();
+
+        let mut config = BrowserConfig::default();
+        config.data_dirs = data_dirs;
+        // Mock multi_process for isolated tests
+        config.multi_process = false;
+
+        // Initialize browser
+        let mut browser = Browser::new(config).await.unwrap();
+
+        // Verify initial state
+        assert_eq!(browser.active_tab().await, None);
+
+        // Create first tab
+        let tab1_id = browser.new_tab("https://example.com").await.unwrap();
+        assert_eq!(browser.active_tab().await, Some(tab1_id));
+
+        // Create second tab
+        let tab2_id = browser.new_tab("https://example.org").await.unwrap();
+        assert_eq!(browser.active_tab().await, Some(tab1_id)); // Active tab should still be the first one
+
+        // Change active tab
+        browser.set_active_tab(tab2_id).await.unwrap();
+        assert_eq!(browser.active_tab().await, Some(tab2_id));
+
+        // Set invalid active tab
+        let result = browser.set_active_tab(TabId(999)).await;
+        assert!(result.is_err());
+    }
+}
