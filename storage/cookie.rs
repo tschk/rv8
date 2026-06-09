@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use parking_lot::RwLock;
@@ -49,16 +50,16 @@ pub struct CookieJarSnapshot {
 #[derive(Clone)]
 pub struct CookieJar {
     tree: Option<Tree>,
-    cache: Arc<RwLock<Vec<Cookie>>>,
+    cache: Arc<RwLock<HashMap<String, Cookie>>>,
 }
 
 impl CookieJar {
     pub fn open(tree: Tree) -> Result<Self, StorageError> {
-        let mut cookies = Vec::new();
+        let mut cookies = HashMap::new();
         for item in tree.iter() {
             let (_, value) = item?;
             let cookie: Cookie = serde_json::from_slice(&value)?;
-            cookies.push(cookie);
+            cookies.insert(cookie.key(), cookie);
         }
         Ok(Self {
             tree: Some(tree),
@@ -69,7 +70,7 @@ impl CookieJar {
     pub fn ephemeral() -> Self {
         Self {
             tree: None,
-            cache: Arc::new(RwLock::new(Vec::new())),
+            cache: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -80,11 +81,7 @@ impl CookieJar {
             tree.flush()?;
         }
         let mut cache = self.cache.write();
-        if let Some(pos) = cache.iter().position(|c| c.key() == cookie.key()) {
-            cache[pos] = cookie;
-        } else {
-            cache.push(cookie);
-        }
+        cache.insert(cookie.key(), cookie);
         Ok(())
     }
 
@@ -95,27 +92,25 @@ impl CookieJar {
             tree.flush()?;
         }
         let mut cache = self.cache.write();
-        let before = cache.len();
-        cache.retain(|c| c.key() != key);
-        Ok(cache.len() != before)
+        Ok(cache.remove(&key).is_some())
     }
 
     pub fn get(&self, domain: &str, path: &str, name: &str) -> Option<Cookie> {
         let key = format!("{domain}|{path}|{name}");
-        self.cache.read().iter().find(|c| c.key() == key).cloned()
+        self.cache.read().get(&key).cloned()
     }
 
     pub fn cookies_for_domain(&self, domain: &str) -> Vec<Cookie> {
         self.cache
             .read()
-            .iter()
+            .values()
             .filter(|c| domain_matches(&c.domain, domain))
             .cloned()
             .collect()
     }
 
     pub fn all(&self) -> Vec<Cookie> {
-        self.cache.read().clone()
+        self.cache.read().values().cloned().collect()
     }
 
     pub fn snapshot(&self) -> CookieJarSnapshot {
@@ -136,7 +131,7 @@ impl CookieJar {
             }
             tree.flush()?;
         }
-        *self.cache.write() = snapshot.cookies;
+        *self.cache.write() = snapshot.cookies.into_iter().map(|c| (c.key(), c)).collect();
         Ok(())
     }
 
