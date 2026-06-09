@@ -299,8 +299,7 @@ fn console_log(
     let message = args
         .get(0)
         .to_string(scope)
-        .unwrap()
-        .to_rust_string_lossy(scope);
+        .map(|s| s.to_rust_string_lossy(scope)).unwrap_or_default();
     get_context_data(scope).console_api.write().log(&message);
 }
 
@@ -312,8 +311,7 @@ fn console_info(
     let message = args
         .get(0)
         .to_string(scope)
-        .unwrap()
-        .to_rust_string_lossy(scope);
+        .map(|s| s.to_rust_string_lossy(scope)).unwrap_or_default();
     get_context_data(scope).console_api.write().info(&message);
 }
 
@@ -325,8 +323,7 @@ fn console_warn(
     let message = args
         .get(0)
         .to_string(scope)
-        .unwrap()
-        .to_rust_string_lossy(scope);
+        .map(|s| s.to_rust_string_lossy(scope)).unwrap_or_default();
     get_context_data(scope).console_api.write().warn(&message);
 }
 
@@ -338,8 +335,7 @@ fn console_error(
     let message = args
         .get(0)
         .to_string(scope)
-        .unwrap()
-        .to_rust_string_lossy(scope);
+        .map(|s| s.to_rust_string_lossy(scope)).unwrap_or_default();
     get_context_data(scope).console_api.write().error(&message);
 }
 
