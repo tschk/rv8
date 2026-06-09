@@ -788,3 +788,48 @@ pub(crate) fn get_context_data(scope: &mut v8::HandleScope) -> &'static V8Contex
     // SAFETY: `ptr` is owned by the current V8 context and freed by `take_context_data`.
     unsafe { &*ptr }
 }
+#[cfg(test)]
+mod tests {
+    use crate::js::bindings::{V8ContextData, initialize_context, take_context_data};
+    use crate::servo_embed::dom::DomTree;
+    use crate::servo_embed::web_apis::{ConsoleApi, StorageApi, TimerManager};
+    use parking_lot::RwLock;
+    use rusty_v8 as v8;
+    use std::sync::Arc;
+
+    #[test]
+    fn test_take_context_data() {
+        crate::js::engine::init_v8();
+        let mut isolate = v8::Isolate::new(v8::CreateParams::default());
+        let mut handle_scope = v8::HandleScope::new(&mut isolate);
+
+        let dom_tree = Arc::new(RwLock::new(DomTree::new()));
+        let console_api = Arc::new(RwLock::new(ConsoleApi::new()));
+        let timer_manager = Arc::new(RwLock::new(TimerManager::new()));
+        let local_storage = Arc::new(RwLock::new(StorageApi::new(1024)));
+        let session_storage = Arc::new(RwLock::new(StorageApi::new(1024)));
+
+        let data = V8ContextData::new(
+            dom_tree.clone(),
+            console_api.clone(),
+            timer_manager.clone(),
+            local_storage.clone(),
+            session_storage.clone(),
+        );
+
+        let context = initialize_context(&mut handle_scope, data);
+        let mut context_scope = v8::ContextScope::new(&mut handle_scope, context);
+
+        // Before taking it, we should be able to get it (indirectly verified)
+
+        let taken_data = take_context_data(&mut context_scope);
+        assert!(taken_data.is_some());
+
+        let taken_data = taken_data.unwrap();
+        // Just verify some fields exist
+        assert_eq!(Arc::strong_count(&taken_data.dom_tree), 2); // 1 here, 1 in our original let dom_tree
+
+        let taken_again = take_context_data(&mut context_scope);
+        assert!(taken_again.is_none());
+    }
+}
