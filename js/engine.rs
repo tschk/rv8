@@ -189,6 +189,7 @@ impl Drop for JsEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::js::JsValue;
 
     #[test]
     fn test_basic_execution() {
@@ -202,6 +203,27 @@ mod tests {
         let mut engine = JsEngine::new().unwrap();
         let result = engine.execute_to_string("'hello' + ' world'").unwrap();
         assert_eq!(result, "hello world");
+    }
+
+    #[test]
+    fn test_execute_return_types() {
+        let mut engine = JsEngine::new().unwrap();
+
+        assert_eq!(engine.execute("undefined").unwrap(), JsValue::Undefined);
+        assert_eq!(engine.execute("null").unwrap(), JsValue::Null);
+        assert_eq!(engine.execute("true").unwrap(), JsValue::Boolean(true));
+        assert_eq!(engine.execute("false").unwrap(), JsValue::Boolean(false));
+        assert_eq!(engine.execute("42.5").unwrap(), JsValue::Number(42.5));
+        assert_eq!(
+            engine.execute("'hello'").unwrap(),
+            JsValue::String("hello".to_string())
+        );
+        assert_eq!(engine.execute("[1, 2, 3]").unwrap(), JsValue::Array);
+        assert_eq!(engine.execute("(function() {})").unwrap(), JsValue::Function);
+        assert_eq!(engine.execute("({ a: 1 })").unwrap(), JsValue::Object);
+
+        let err_result = engine.execute("invalid js syntax !!!");
+        assert!(err_result.is_err());
     }
 
     #[test]
