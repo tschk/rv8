@@ -1,6 +1,6 @@
 //! Resource preloading and prefetching
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 /// Preload hint types
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -22,6 +22,8 @@ pub struct Preloader {
     hints: HashSet<PreloadHint>,
     /// Completed preloads
     completed: HashSet<PreloadHint>,
+    /// Cached resource data
+    cache: HashMap<String, bytes::Bytes>,
 }
 
 impl Preloader {
@@ -30,6 +32,7 @@ impl Preloader {
             client: reqwest::Client::new(),
             hints: HashSet::new(),
             completed: HashSet::new(),
+            cache: HashMap::new(),
         }
     }
 
@@ -38,6 +41,11 @@ impl Preloader {
         if !self.completed.contains(&hint) {
             self.hints.insert(hint);
         }
+    }
+
+    /// Retrieve a resource from the cache
+    pub fn get_from_cache(&self, url: &str) -> Option<&bytes::Bytes> {
+        self.cache.get(url)
     }
 
     /// Process pending hints
@@ -57,9 +65,10 @@ impl Preloader {
                 }
                 PreloadHint::Prefetch(url) => {
                     // Fetch resource to cache
-                    // TODO: Implement prefetch
                     if let Ok(response) = self.client.get(url).send().await {
-                        let _ = response.bytes().await;
+                        if let Ok(bytes) = response.bytes().await {
+                            self.cache.insert(url.to_string(), bytes);
+                        }
                     }
                 }
                 PreloadHint::Prerender(url) => {
@@ -78,5 +87,25 @@ impl Preloader {
 impl Default for Preloader {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_prefetch_stores_in_cache() {
+        let mut preloader = Preloader::new();
+        let url = "https://example.com/";
+
+        preloader.add_hint(PreloadHint::Prefetch(url.to_string()));
+
+        // This makes an actual network request.
+        preloader.process().await;
+
+        let cached = preloader.get_from_cache(url);
+        assert!(cached.is_some(), "Resource should be cached");
+        assert!(!cached.unwrap().is_empty(), "Cached resource should not be empty");
     }
 }
