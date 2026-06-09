@@ -1,6 +1,8 @@
 //! Memory management and optimization
 
-use log::{info, warn};
+use log::warn;
+use std::sync::Mutex;
+use sysinfo::System;
 
 /// Memory optimizer for handling pressure and tab discarding
 pub struct MemoryOptimizer {
@@ -10,6 +12,8 @@ pub struct MemoryOptimizer {
     tab_discarding: bool,
     /// Enable tab freezing
     tab_freezing: bool,
+    /// System monitoring
+    sys: Mutex<System>,
 }
 
 impl Default for MemoryOptimizer {
@@ -18,6 +22,7 @@ impl Default for MemoryOptimizer {
             pressure_threshold: 0.8,
             tab_discarding: true,
             tab_freezing: true,
+            sys: Mutex::new(System::new()),
         }
     }
 }
@@ -25,7 +30,15 @@ impl Default for MemoryOptimizer {
 impl MemoryOptimizer {
     /// Check if under memory pressure
     pub fn is_under_pressure(&self) -> bool {
-        // TODO: Implement actual memory pressure detection
+        if let Ok(mut sys) = self.sys.lock() {
+            sys.refresh_memory();
+            let total = sys.total_memory();
+            let used = sys.used_memory();
+            if total > 0 {
+                let usage = used as f64 / total as f64;
+                return usage >= self.pressure_threshold;
+            }
+        }
         false
     }
 
