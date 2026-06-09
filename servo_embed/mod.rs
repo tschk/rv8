@@ -24,13 +24,13 @@ use crate::js::JsEngine;
 pub mod dom;
 #[cfg(feature = "servo-render")]
 mod embedder_polyfills;
+#[cfg(not(feature = "servo-render"))]
+mod paint;
 pub mod parser;
 #[cfg(feature = "servo-render")]
 mod servo_renderer;
 #[cfg(feature = "servo-render")]
 pub mod viewport;
-#[cfg(not(feature = "servo-render"))]
-mod paint;
 pub mod web_apis;
 
 use self::dom::{DomEvent, DomTree};
@@ -190,11 +190,7 @@ impl ServoEmbedder {
                                 *dom = DomTree::new();
                                 parser::parse_html(&html, &mut *dom);
                             }
-                            self.title = self
-                                .dom_tree
-                                .read()
-                                .document_title()
-                                .unwrap_or_default();
+                            self.title = self.dom_tree.read().document_title().unwrap_or_default();
                             info!("HTML parsing complete");
                         }
                         Err(e) => {
@@ -326,6 +322,17 @@ impl ServoEmbedder {
             let mut engine = self.js_engine.lock().await;
             engine.dispatch_event(&event);
         }
+    }
+
+    /// Handle focus event
+    pub fn handle_focus(&mut self, focused: bool) {
+        #[cfg(feature = "servo-render")]
+        if let Some(ref mut servo) = self.servo {
+            servo.handle_focus(focused);
+            self.frame_generation = self.frame_generation.saturating_add(1);
+            return;
+        }
+        debug!("Focus changed: {}", focused);
     }
 
     /// Handle scroll event
