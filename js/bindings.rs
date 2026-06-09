@@ -296,11 +296,7 @@ fn console_log(
     args: v8::FunctionCallbackArguments,
     _rv: v8::ReturnValue,
 ) {
-    let message = args
-        .get(0)
-        .to_string(scope)
-        .unwrap()
-        .to_rust_string_lossy(scope);
+    let message = value_to_string(scope, args.get(0)).unwrap_or_default();
     get_context_data(scope).console_api.write().log(&message);
 }
 
@@ -309,11 +305,7 @@ fn console_info(
     args: v8::FunctionCallbackArguments,
     _rv: v8::ReturnValue,
 ) {
-    let message = args
-        .get(0)
-        .to_string(scope)
-        .unwrap()
-        .to_rust_string_lossy(scope);
+    let message = value_to_string(scope, args.get(0)).unwrap_or_default();
     get_context_data(scope).console_api.write().info(&message);
 }
 
@@ -322,11 +314,7 @@ fn console_warn(
     args: v8::FunctionCallbackArguments,
     _rv: v8::ReturnValue,
 ) {
-    let message = args
-        .get(0)
-        .to_string(scope)
-        .unwrap()
-        .to_rust_string_lossy(scope);
+    let message = value_to_string(scope, args.get(0)).unwrap_or_default();
     get_context_data(scope).console_api.write().warn(&message);
 }
 
@@ -335,11 +323,7 @@ fn console_error(
     args: v8::FunctionCallbackArguments,
     _rv: v8::ReturnValue,
 ) {
-    let message = args
-        .get(0)
-        .to_string(scope)
-        .unwrap()
-        .to_rust_string_lossy(scope);
+    let message = value_to_string(scope, args.get(0)).unwrap_or_default();
     get_context_data(scope).console_api.write().error(&message);
 }
 
@@ -348,7 +332,9 @@ fn set_timeout_callback(
     args: v8::FunctionCallbackArguments,
     mut rv: v8::ReturnValue,
 ) {
-    let callback = v8::Local::<v8::Function>::try_from(args.get(0)).unwrap();
+    let Ok(callback) = v8::Local::<v8::Function>::try_from(args.get(0)) else {
+        return;
+    };
     let delay = args.get(1).integer_value(scope).unwrap_or(0) as u64;
 
     let data = get_context_data(scope);
@@ -367,7 +353,9 @@ fn set_interval_callback(
     args: v8::FunctionCallbackArguments,
     mut rv: v8::ReturnValue,
 ) {
-    let callback = v8::Local::<v8::Function>::try_from(args.get(0)).unwrap();
+    let Ok(callback) = v8::Local::<v8::Function>::try_from(args.get(0)) else {
+        return;
+    };
     let interval = args.get(1).integer_value(scope).unwrap_or(0) as u64;
 
     let data = get_context_data(scope);
@@ -432,7 +420,9 @@ fn node_name_getter(
             .map(|node| node.tag_name.clone().unwrap_or_else(|| "#text".to_string()))
     };
     if let Some(name) = name {
-        rv.set(v8::String::new(scope, &name).unwrap().into());
+        if let Some(v8_str) = v8::String::new(scope, &name) {
+            rv.set(v8_str.into());
+        }
     }
 }
 
@@ -452,7 +442,9 @@ fn tag_name_getter(
             .and_then(|node| node.tag_name.as_ref().map(|tag| tag.to_uppercase()))
     };
     if let Some(tag_name) = tag_name {
-        rv.set(v8::String::new(scope, &tag_name).unwrap().into());
+        if let Some(v8_str) = v8::String::new(scope, &tag_name) {
+            rv.set(v8_str.into());
+        }
     }
 }
 
@@ -665,15 +657,13 @@ fn storage_get_item(
     args: v8::FunctionCallbackArguments,
     mut rv: v8::ReturnValue,
 ) {
-    let key = args
-        .get(0)
-        .to_string(scope)
-        .unwrap()
-        .to_rust_string_lossy(scope);
+    let key = value_to_string(scope, args.get(0)).unwrap_or_default();
     let storage = get_storage(scope, args.this());
     let value = storage.read().get_item(&key).map(str::to_owned);
     if let Some(value) = value {
-        rv.set(v8::String::new(scope, &value).unwrap().into());
+        if let Some(v8_str) = v8::String::new(scope, &value) {
+            rv.set(v8_str.into());
+        }
     } else {
         rv.set(v8::null(scope).into());
     }
@@ -684,16 +674,8 @@ fn storage_set_item(
     args: v8::FunctionCallbackArguments,
     _rv: v8::ReturnValue,
 ) {
-    let key = args
-        .get(0)
-        .to_string(scope)
-        .unwrap()
-        .to_rust_string_lossy(scope);
-    let value = args
-        .get(1)
-        .to_string(scope)
-        .unwrap()
-        .to_rust_string_lossy(scope);
+    let key = value_to_string(scope, args.get(0)).unwrap_or_default();
+    let value = value_to_string(scope, args.get(1)).unwrap_or_default();
     let storage = get_storage(scope, args.this());
     let _ = storage.write().set_item(&key, &value);
 }
@@ -703,11 +685,7 @@ fn storage_remove_item(
     args: v8::FunctionCallbackArguments,
     _rv: v8::ReturnValue,
 ) {
-    let key = args
-        .get(0)
-        .to_string(scope)
-        .unwrap()
-        .to_rust_string_lossy(scope);
+    let key = value_to_string(scope, args.get(0)).unwrap_or_default();
     let storage = get_storage(scope, args.this());
     storage.write().remove_item(&key);
 }
