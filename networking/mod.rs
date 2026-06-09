@@ -49,8 +49,6 @@ impl NetworkProcess {
 
     pub async fn run(&self) {
         info!("Network process running...");
-        loop {
-            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-        }
+        std::future::pending::<()>().await;
     }
 }
