@@ -788,3 +788,73 @@ pub(crate) fn get_context_data(scope: &mut v8::HandleScope) -> &'static V8Contex
     // SAFETY: `ptr` is owned by the current V8 context and freed by `take_context_data`.
     unsafe { &*ptr }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::servo_embed::dom::DomTree;
+    use crate::servo_embed::web_apis::{ConsoleApi, StorageApi, TimerManager};
+    use parking_lot::RwLock;
+    use std::sync::Arc;
+
+    static INIT: std::sync::Once = std::sync::Once::new();
+
+    fn init_v8() {
+        INIT.call_once(|| {
+            let platform = v8::new_default_platform(0, false).make_shared();
+            v8::V8::initialize_platform(platform);
+            v8::V8::initialize();
+        });
+    }
+
+    fn create_test_context_data() -> V8ContextData {
+        let dom_tree = Arc::new(RwLock::new(DomTree::new()));
+        let console_api = Arc::new(RwLock::new(ConsoleApi::new()));
+        let timer_manager = Arc::new(RwLock::new(TimerManager::new()));
+        let local_storage = Arc::new(RwLock::new(StorageApi::new(1024)));
+        let session_storage = Arc::new(RwLock::new(StorageApi::new(1024)));
+
+        V8ContextData::new(
+            dom_tree,
+            console_api,
+            timer_manager,
+            local_storage,
+            session_storage,
+        )
+    }
+
+    #[test]
+    fn test_get_context_data_success() {
+        init_v8();
+        let mut isolate = v8::Isolate::new(v8::CreateParams::default());
+        let scope = &mut v8::HandleScope::new(&mut isolate);
+
+        let context_data = create_test_context_data();
+        let context = initialize_context(scope, context_data);
+        let scope = &mut v8::ContextScope::new(scope, context);
+
+        // This should not panic and return the installed context data
+        let retrieved_data = get_context_data(scope);
+
+        // Assert some state indicating it is valid
+        assert!(retrieved_data.dom_tree.read().get_node(0).is_none());
+
+        // Clean up
+        let _ = take_context_data(scope);
+    }
+
+    #[test]
+    #[should_panic(expected = "V8 context data should be installed")]
+    fn test_get_context_data_missing() {
+        init_v8();
+        let mut isolate = v8::Isolate::new(v8::CreateParams::default());
+        let scope = &mut v8::HandleScope::new(&mut isolate);
+
+        // Create a basic context without our initialization
+        let context = v8::Context::new(scope);
+        let scope = &mut v8::ContextScope::new(scope, context);
+
+        // This should panic
+        let _ = get_context_data(scope);
+    }
+}
