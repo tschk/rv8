@@ -359,3 +359,45 @@ impl Browser {
         &self.storage
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::config::BrowserConfig;
+
+    #[tokio::test]
+    async fn test_close_tab() {
+        let mut config = BrowserConfig::incognito();
+        let temp_dir = tempfile::tempdir().unwrap();
+        config.user_data_dir = temp_dir.path().to_path_buf();
+        config.data_dirs.profile_dir = temp_dir.path().to_path_buf();
+        config.multi_process = false;
+
+        let mut browser = Browser::new(config).await.unwrap();
+
+        // Add tab 1
+        let tab1 = browser.new_tab("https://example.com").await.unwrap();
+
+        // Add tab 2
+        let tab2 = browser.new_tab("https://example.org").await.unwrap();
+
+        // Ensure both tabs are present
+        assert_eq!(browser.tab_count().await, 2);
+
+        // Test closing inactive tab
+        // Let's set tab2 as active first to ensure tab1 is inactive
+        browser.set_active_tab(tab2).await.unwrap();
+        browser.close_tab(tab1).await.unwrap();
+        assert_eq!(browser.tab_count().await, 1);
+        assert_eq!(browser.active_tab().await, Some(tab2));
+
+        // Test closing active tab
+        browser.close_tab(tab2).await.unwrap();
+        assert_eq!(browser.tab_count().await, 0);
+        assert_eq!(browser.active_tab().await, None);
+
+        // Test closing non-existent tab (should not error, just do nothing)
+        browser.close_tab(TabId(999)).await.unwrap();
+        assert_eq!(browser.tab_count().await, 0);
+    }
+}
