@@ -359,3 +359,44 @@ impl Browser {
         &self.storage
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_set_active_tab_not_found() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = BrowserConfig::incognito();
+        config.data_dirs.profile_dir = temp_dir.path().to_path_buf();
+
+        let browser = Browser::new(config).await.unwrap();
+
+        let result = browser.set_active_tab(TabId(999)).await;
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Tab 999 not found");
+    }
+
+    #[tokio::test]
+    async fn test_set_active_tab_success() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = BrowserConfig::incognito();
+        config.data_dirs.profile_dir = temp_dir.path().to_path_buf();
+
+        let mut browser = Browser::new(config).await.unwrap();
+
+        // new_tab creates a tab and sets it as active if it's the first tab
+        let tab_id1 = browser.new_tab("https://example.com").await.unwrap();
+        let tab_id2 = browser.new_tab("https://example.org").await.unwrap();
+
+        // The first tab should be active
+        assert_eq!(browser.active_tab().await, Some(tab_id1));
+
+        // Set the second tab as active
+        let result = browser.set_active_tab(tab_id2).await;
+        assert!(result.is_ok());
+
+        // Check that the active tab was updated
+        assert_eq!(browser.active_tab().await, Some(tab_id2));
+    }
+}
