@@ -359,3 +359,57 @@ impl Browser {
         &self.storage
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::config::BrowserDataDirs;
+    use tempfile::tempdir;
+
+    #[tokio::test]
+    async fn test_browser_new_success() {
+        let temp_dir = tempdir().expect("Failed to create temp dir");
+        let mut config = BrowserConfig::default();
+
+        let data_dirs = BrowserDataDirs {
+            profile_dir: temp_dir.path().join("profile"),
+            cache_dir: temp_dir.path().join("cache"),
+            downloads_dir: temp_dir.path().join("downloads"),
+            state_dir: temp_dir.path().join("state"),
+            logs_dir: temp_dir.path().join("logs"),
+            terminal_state_dir: temp_dir.path().join("terminal"),
+        };
+        config.data_dirs = data_dirs;
+        config.user_data_dir = temp_dir.path().join("profile");
+
+        let browser = Browser::new(config).await.expect("Failed to create Browser");
+
+        assert_eq!(browser.tab_count().await, 0);
+        assert!(browser.active_tab().await.is_none());
+        assert_eq!(browser.next_tab_id.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn test_browser_incognito() {
+        let temp_dir = tempdir().expect("Failed to create temp dir");
+        let mut config = BrowserConfig::incognito();
+
+        let data_dirs = BrowserDataDirs {
+            profile_dir: temp_dir.path().join("profile"),
+            cache_dir: temp_dir.path().join("cache"),
+            downloads_dir: temp_dir.path().join("downloads"),
+            state_dir: temp_dir.path().join("state"),
+            logs_dir: temp_dir.path().join("logs"),
+            terminal_state_dir: temp_dir.path().join("terminal"),
+        };
+        config.data_dirs = data_dirs;
+        config.user_data_dir = temp_dir.path().join("profile");
+
+        let browser = Browser::new(config).await.expect("Failed to create Browser in incognito mode");
+
+        assert_eq!(browser.tab_count().await, 0);
+        assert!(browser.active_tab().await.is_none());
+        assert_eq!(browser.next_tab_id.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert!(browser.config.incognito);
+    }
+}
