@@ -788,3 +788,36 @@ pub(crate) fn get_context_data(scope: &mut v8::HandleScope) -> &'static V8Contex
     // SAFETY: `ptr` is owned by the current V8 context and freed by `take_context_data`.
     unsafe { &*ptr }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+    use parking_lot::RwLock;
+
+    #[test]
+    fn test_v8_context_data_new() {
+        let dom_tree = Arc::new(RwLock::new(DomTree::new()));
+        let console_api = Arc::new(RwLock::new(ConsoleApi::new()));
+        let timer_manager = Arc::new(RwLock::new(TimerManager::new()));
+        let local_storage = Arc::new(RwLock::new(StorageApi::new(1024 * 1024)));
+        let session_storage = Arc::new(RwLock::new(StorageApi::new(1024 * 1024)));
+
+        let context_data = V8ContextData::new(
+            Arc::clone(&dom_tree),
+            Arc::clone(&console_api),
+            Arc::clone(&timer_manager),
+            Arc::clone(&local_storage),
+            Arc::clone(&session_storage),
+        );
+
+        assert!(Arc::ptr_eq(&context_data.dom_tree, &dom_tree));
+        assert!(Arc::ptr_eq(&context_data.console_api, &console_api));
+        assert!(Arc::ptr_eq(&context_data.timer_manager, &timer_manager));
+        assert!(Arc::ptr_eq(&context_data.local_storage, &local_storage));
+        assert!(Arc::ptr_eq(&context_data.session_storage, &session_storage));
+
+        assert!(context_data.timer_callbacks.read().is_empty());
+        assert!(context_data.event_listeners.read().is_empty());
+    }
+}
