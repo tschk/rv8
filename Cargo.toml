@@ -76,6 +76,7 @@ rayon = "1.10"
 
 # Memory
 memmap2 = "0.9"
+sysinfo = "0.30"
 
 # System calls
 nix = { version = "0.27", features = ["sched"] }
