@@ -205,6 +205,29 @@ mod tests {
     }
 
     #[test]
+    fn test_microtask_checkpoint() {
+        let mut engine = JsEngine::new().unwrap();
+
+        // Disable automatic microtasks.
+        engine.isolate.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
+
+        engine
+            .execute(
+                "var microtaskRan = false;
+                 Promise.resolve().then(() => { microtaskRan = true; });",
+            )
+            .unwrap();
+
+        let result = engine.execute_to_string("microtaskRan.toString()").unwrap();
+        assert_eq!(result, "false");
+
+        engine.perform_microtask_checkpoint();
+
+        let result = engine.execute_to_string("microtaskRan.toString()").unwrap();
+        assert_eq!(result, "true");
+    }
+
+    #[test]
     fn test_dom_bindings() {
         use crate::servo_embed::dom::DomTree;
         use crate::servo_embed::web_apis::{ConsoleApi, StorageApi, TimerManager};
