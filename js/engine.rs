@@ -244,6 +244,48 @@ mod tests {
     }
 
     #[test]
+    fn test_call_timer_callback() {
+        use crate::servo_embed::dom::DomTree;
+        use crate::servo_embed::web_apis::{ConsoleApi, StorageApi, TimerManager};
+        use parking_lot::RwLock;
+        use std::sync::Arc;
+
+        let mut engine = JsEngine::new().unwrap();
+        let dom_tree = Arc::new(RwLock::new(DomTree::new()));
+        let console_api = Arc::new(RwLock::new(ConsoleApi::new()));
+        let timer_manager = Arc::new(RwLock::new(TimerManager::new()));
+        let local_storage = Arc::new(RwLock::new(StorageApi::new(1024)));
+        let session_storage = Arc::new(RwLock::new(StorageApi::new(1024)));
+
+        engine.initialize(V8ContextData::new(
+            dom_tree.clone(),
+            console_api.clone(),
+            timer_manager.clone(),
+            local_storage.clone(),
+            session_storage.clone(),
+        ));
+
+        // Set up a timer callback
+        engine.execute("var result = 0; var id = setTimeout(function() { result = 42; }, 10);").unwrap();
+
+        // Ensure result is 0 initially
+        assert_eq!(engine.execute_to_string("result").unwrap(), "0");
+
+        // Get the timer ID
+        let timer_id = engine.execute_to_string("id").unwrap().parse::<u64>().unwrap();
+
+        // Call the callback
+        engine.call_timer_callback(timer_id);
+
+        // Ensure result is now 42
+        assert_eq!(engine.execute_to_string("result").unwrap(), "42");
+
+        // Also test invalid timer ID
+        engine.call_timer_callback(9999);
+        assert_eq!(engine.execute_to_string("result").unwrap(), "42");
+    }
+
+    #[test]
     fn test_dom_mutation_and_event_bindings() {
         use crate::servo_embed::dom::{DomEvent, DomTree};
         use crate::servo_embed::web_apis::{ConsoleApi, StorageApi, TimerManager};
