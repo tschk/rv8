@@ -359,3 +359,55 @@ impl Browser {
         &self.storage
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_tab_count_initial() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = BrowserConfig::incognito();
+        config.data_dirs.profile_dir = temp_dir.path().to_path_buf();
+
+        let browser = Browser::new(config).await.unwrap();
+        assert_eq!(browser.tab_count().await, 0);
+    }
+
+    #[tokio::test]
+    async fn test_tab_count_after_adding_tabs() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = BrowserConfig::incognito();
+        config.multi_process = false;
+        config.data_dirs.profile_dir = temp_dir.path().to_path_buf();
+
+        let mut browser = Browser::new(config).await.unwrap();
+        assert_eq!(browser.tab_count().await, 0);
+
+        let _tab_id = browser.new_tab("https://example.com").await.unwrap();
+        assert_eq!(browser.tab_count().await, 1);
+
+        let _tab_id_2 = browser.new_tab("https://example.org").await.unwrap();
+        assert_eq!(browser.tab_count().await, 2);
+    }
+
+    #[tokio::test]
+    async fn test_tab_count_after_closing_tabs() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let mut config = BrowserConfig::incognito();
+        config.multi_process = false;
+        config.data_dirs.profile_dir = temp_dir.path().to_path_buf();
+
+        let mut browser = Browser::new(config).await.unwrap();
+
+        let tab_id_1 = browser.new_tab("https://example.com").await.unwrap();
+        let tab_id_2 = browser.new_tab("https://example.org").await.unwrap();
+        assert_eq!(browser.tab_count().await, 2);
+
+        browser.close_tab(tab_id_1).await.unwrap();
+        assert_eq!(browser.tab_count().await, 1);
+
+        browser.close_tab(tab_id_2).await.unwrap();
+        assert_eq!(browser.tab_count().await, 0);
+    }
+}
