@@ -359,3 +359,224 @@ impl Browser {
         &self.storage
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::config::BrowserDataDirs;
+    use tempfile::tempdir;
+
+    async fn create_test_browser() -> (Browser, tempfile::TempDir) {
+        let dir = tempdir().unwrap();
+        let mut config = BrowserConfig::default();
+        config.user_data_dir = dir.path().to_path_buf();
+        config.data_dirs.profile_dir = dir.path().to_path_buf();
+        config.data_dirs.cache_dir = dir.path().join("cache");
+        config.data_dirs.downloads_dir = dir.path().join("downloads");
+        config.data_dirs.state_dir = dir.path().join("state");
+        config.data_dirs.logs_dir = dir.path().join("logs");
+        config.data_dirs.terminal_state_dir = dir.path().join("terminal");
+        config.incognito = true;
+        config.multi_process = false;
+
+        let browser = Browser::new(config).await.unwrap();
+        (browser, dir)
+    }
+
+    #[tokio::test]
+    async fn test_browser_new_success() {
+        let temp_dir = tempdir().expect("Failed to create temp dir");
+        let mut config = BrowserConfig::default();
+
+        let data_dirs = BrowserDataDirs {
+            profile_dir: temp_dir.path().join("profile"),
+            cache_dir: temp_dir.path().join("cache"),
+            downloads_dir: temp_dir.path().join("downloads"),
+            state_dir: temp_dir.path().join("state"),
+            logs_dir: temp_dir.path().join("logs"),
+            terminal_state_dir: temp_dir.path().join("terminal"),
+        };
+        config.data_dirs = data_dirs;
+        config.user_data_dir = temp_dir.path().join("profile");
+
+        let browser = Browser::new(config).await.expect("Failed to create Browser");
+
+        assert_eq!(browser.tab_count().await, 0);
+        assert!(browser.active_tab().await.is_none());
+        assert_eq!(
+            browser.next_tab_id.load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn test_browser_incognito() {
+        let temp_dir = tempdir().expect("Failed to create temp dir");
+        let mut config = BrowserConfig::incognito();
+
+        let data_dirs = BrowserDataDirs {
+            profile_dir: temp_dir.path().join("profile"),
+            cache_dir: temp_dir.path().join("cache"),
+            downloads_dir: temp_dir.path().join("downloads"),
+            state_dir: temp_dir.path().join("state"),
+            logs_dir: temp_dir.path().join("logs"),
+            terminal_state_dir: temp_dir.path().join("terminal"),
+        };
+        config.data_dirs = data_dirs;
+        config.user_data_dir = temp_dir.path().join("profile");
+
+        let browser = Browser::new(config)
+            .await
+            .expect("Failed to create Browser in incognito mode");
+
+        assert_eq!(browser.tab_count().await, 0);
+        assert!(browser.active_tab().await.is_none());
+        assert_eq!(
+            browser.next_tab_id.load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
+        assert!(browser.config.incognito);
+    }
+
+    #[tokio::test]
+    async fn test_new_tab_success() {
+        let (mut browser, _dir) = create_test_browser().await;
+
+        let tab_id = browser
+            .new_tab("https://example.com")
+            .await
+            .expect("Failed to create new tab");
+
+        assert_eq!(tab_id.0, 1);
+        assert_eq!(browser.tab_count().await, 1);
+        assert_eq!(browser.active_tab().await, Some(tab_id));
+
+        let tabs = browser.tabs.read().await;
+        let tab = tabs.get(&tab_id).unwrap().lock().await;
+        assert_eq!(tab.url(), "https://example.com/");
+    }
+
+    #[tokio::test]
+    async fn test_new_tab_consecutive_ids() {
+        let (mut browser, _dir) = create_test_browser().await;
+
+        let tab_id1 = browser.new_tab("https://example.com").await.unwrap();
+        let tab_id2 = browser.new_tab("https://example.org").await.unwrap();
+
+        assert_eq!(tab_id1.0, 1);
+        assert_eq!(tab_id2.0, 2);
+        assert_eq!(browser.tab_count().await, 2);
+    }
+
+    #[tokio::test]
+    async fn test_new_tab_empty_url() {
+        let (mut browser, _dir) = create_test_browser().await;
+        assert!(browser.new_tab("").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_set_active_tab() {
+        let (mut browser, _dir) = create_test_browser().await;
+
+        assert!(browser.active_tab().await.is_none());
+
+        let tab_id1 = browser.new_tab("https://example.com").await.unwrap();
+        assert_eq!(browser.active_tab().await, Some(tab_id1));
+
+        let tab_id2 = browser.new_tab("https://example.org").await.unwrap();
+        assert_eq!(browser.active_tab().await, Some(tab_id1));
+
+        browser.set_active_tab(tab_id2).await.unwrap();
+        assert_eq!(browser.active_tab().await, Some(tab_id2));
+
+        let result = browser.set_active_tab(TabId(999)).await;
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Tab 999 not found");
+        assert_eq!(browser.active_tab().await, Some(tab_id2));
+    }
+
+    #[tokio::test]
+    async fn test_navigate() {
+        let (mut browser, _dir) = create_test_browser().await;
+
+        let tab_id = browser.new_tab("https://example.com").await.unwrap();
+        assert_eq!(browser.active_tab().await, Some(tab_id));
+
+        browser.navigate("https://rust-lang.org").await.unwrap();
+
+        let tabs = browser.tabs.read().await;
+        let tab = tabs.get(&tab_id).unwrap().lock().await;
+        assert_eq!(tab.url(), "https://rust-lang.org/");
+    }
+
+    #[tokio::test]
+    async fn test_navigate_no_active_tab() {
+        let (browser, _dir) = create_test_browser().await;
+
+        assert_eq!(browser.active_tab().await, None);
+        let result = browser.navigate("https://rust-lang.org").await;
+        assert_eq!(result, Err("No active tab".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_navigate_tab() {
+        let (mut browser, _dir) = create_test_browser().await;
+
+        let tab_id = browser.new_tab("https://example.com").await.unwrap();
+        browser
+            .navigate_tab(tab_id, "https://github.com")
+            .await
+            .unwrap();
+
+        let tabs = browser.tabs.read().await;
+        let tab = tabs.get(&tab_id).unwrap().lock().await;
+        assert_eq!(tab.url(), "https://github.com/");
+        drop(tab);
+        drop(tabs);
+
+        let result = browser
+            .navigate_tab(TabId(999), "https://example.com")
+            .await;
+        assert_eq!(result, Err("Tab 999 not found".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_close_tab() {
+        let (mut browser, _dir) = create_test_browser().await;
+
+        let tab1 = browser.new_tab("https://example.com").await.unwrap();
+        let tab2 = browser.new_tab("https://example.org").await.unwrap();
+
+        assert_eq!(browser.tab_count().await, 2);
+
+        browser.set_active_tab(tab2).await.unwrap();
+        browser.close_tab(tab1).await.unwrap();
+        assert_eq!(browser.tab_count().await, 1);
+        assert_eq!(browser.active_tab().await, Some(tab2));
+
+        browser.close_tab(tab2).await.unwrap();
+        assert_eq!(browser.tab_count().await, 0);
+        assert_eq!(browser.active_tab().await, None);
+
+        browser.close_tab(TabId(999)).await.unwrap();
+        assert_eq!(browser.tab_count().await, 0);
+    }
+
+    #[tokio::test]
+    async fn test_tab_count() {
+        let (mut browser, _dir) = create_test_browser().await;
+        assert_eq!(browser.tab_count().await, 0);
+
+        let tab_id_1 = browser.new_tab("https://example.com").await.unwrap();
+        assert_eq!(browser.tab_count().await, 1);
+
+        let tab_id_2 = browser.new_tab("https://example.org").await.unwrap();
+        assert_eq!(browser.tab_count().await, 2);
+
+        browser.close_tab(tab_id_1).await.unwrap();
+        assert_eq!(browser.tab_count().await, 1);
+
+        browser.close_tab(tab_id_2).await.unwrap();
+        assert_eq!(browser.tab_count().await, 0);
+    }
+}

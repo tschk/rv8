@@ -766,3 +766,113 @@ pub(crate) fn get_context_data(scope: &mut v8::HandleScope) -> &'static V8Contex
     // SAFETY: `ptr` is owned by the current V8 context and freed by `take_context_data`.
     unsafe { &*ptr }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::servo_embed::dom::DomTree;
+    use crate::servo_embed::web_apis::{ConsoleApi, StorageApi, TimerManager};
+    use parking_lot::RwLock;
+    use std::sync::Arc;
+
+    fn create_test_context_data() -> V8ContextData {
+        let dom_tree = Arc::new(RwLock::new(DomTree::new()));
+        let console_api = Arc::new(RwLock::new(ConsoleApi::new()));
+        let timer_manager = Arc::new(RwLock::new(TimerManager::new()));
+        let local_storage = Arc::new(RwLock::new(StorageApi::new(1024)));
+        let session_storage = Arc::new(RwLock::new(StorageApi::new(1024)));
+
+        V8ContextData::new(
+            dom_tree,
+            console_api,
+            timer_manager,
+            local_storage,
+            session_storage,
+        )
+    }
+
+    #[test]
+    fn test_v8_context_data_new() {
+        let dom_tree = Arc::new(RwLock::new(DomTree::new()));
+        let console_api = Arc::new(RwLock::new(ConsoleApi::new()));
+        let timer_manager = Arc::new(RwLock::new(TimerManager::new()));
+        let local_storage = Arc::new(RwLock::new(StorageApi::new(1024 * 1024)));
+        let session_storage = Arc::new(RwLock::new(StorageApi::new(1024 * 1024)));
+
+        let context_data = V8ContextData::new(
+            Arc::clone(&dom_tree),
+            Arc::clone(&console_api),
+            Arc::clone(&timer_manager),
+            Arc::clone(&local_storage),
+            Arc::clone(&session_storage),
+        );
+
+        assert!(Arc::ptr_eq(&context_data.dom_tree, &dom_tree));
+        assert!(Arc::ptr_eq(&context_data.console_api, &console_api));
+        assert!(Arc::ptr_eq(&context_data.timer_manager, &timer_manager));
+        assert!(Arc::ptr_eq(&context_data.local_storage, &local_storage));
+        assert!(Arc::ptr_eq(&context_data.session_storage, &session_storage));
+        assert!(context_data.timer_callbacks.read().is_empty());
+        assert!(context_data.event_listeners.read().is_empty());
+    }
+
+    #[test]
+    fn test_take_context_data() {
+        crate::js::engine::init_v8();
+        let mut isolate = v8::Isolate::new(v8::CreateParams::default());
+        let mut handle_scope = v8::HandleScope::new(&mut isolate);
+
+        let dom_tree = Arc::new(RwLock::new(DomTree::new()));
+        let console_api = Arc::new(RwLock::new(ConsoleApi::new()));
+        let timer_manager = Arc::new(RwLock::new(TimerManager::new()));
+        let local_storage = Arc::new(RwLock::new(StorageApi::new(1024)));
+        let session_storage = Arc::new(RwLock::new(StorageApi::new(1024)));
+
+        let data = V8ContextData::new(
+            dom_tree.clone(),
+            console_api.clone(),
+            timer_manager.clone(),
+            local_storage.clone(),
+            session_storage.clone(),
+        );
+
+        let context = initialize_context(&mut handle_scope, data);
+        let mut context_scope = v8::ContextScope::new(&mut handle_scope, context);
+
+        let taken_data = take_context_data(&mut context_scope);
+        assert!(taken_data.is_some());
+        assert_eq!(Arc::strong_count(&taken_data.unwrap().dom_tree), 2);
+
+        let taken_again = take_context_data(&mut context_scope);
+        assert!(taken_again.is_none());
+    }
+
+    #[test]
+    fn test_get_context_data_success() {
+        crate::js::engine::init_v8();
+        let mut isolate = v8::Isolate::new(v8::CreateParams::default());
+        let scope = &mut v8::HandleScope::new(&mut isolate);
+
+        let context_data = create_test_context_data();
+        let context = initialize_context(scope, context_data);
+        let scope = &mut v8::ContextScope::new(scope, context);
+
+        let retrieved_data = get_context_data(scope);
+        assert!(retrieved_data.dom_tree.read().get_node(0).is_none());
+
+        let _ = take_context_data(scope);
+    }
+
+    #[test]
+    #[should_panic(expected = "V8 context data should be installed")]
+    fn test_get_context_data_missing() {
+        crate::js::engine::init_v8();
+        let mut isolate = v8::Isolate::new(v8::CreateParams::default());
+        let scope = &mut v8::HandleScope::new(&mut isolate);
+
+        let context = v8::Context::new(scope);
+        let scope = &mut v8::ContextScope::new(scope, context);
+
+        let _ = get_context_data(scope);
+    }
+}

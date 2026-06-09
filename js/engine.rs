@@ -11,7 +11,7 @@ use std::sync::Once;
 static V8_INIT: Once = Once::new();
 
 /// Initialize V8 (must be called once)
-fn init_v8() {
+pub(crate) fn init_v8() {
     V8_INIT.call_once(|| {
         let platform = v8::new_default_platform(0, false).make_shared();
         v8::V8::initialize_platform(platform);
@@ -293,5 +293,220 @@ mod tests {
 
         assert_eq!(engine.dispatch_event(&event), 1);
         assert_eq!(engine.execute_to_string("seen").unwrap(), "click:7:9");
+    }
+
+    #[test]
+    fn test_version() {
+        let version = JsEngine::version();
+        assert!(!version.is_empty(), "Version string should not be empty");
+        assert!(
+            version.chars().any(|c| c.is_ascii_digit()),
+            "Version string should contain at least one digit"
+        );
+    }
+
+    #[test]
+    fn test_engine_new() {
+        let engine = JsEngine::new();
+        assert!(engine.is_ok());
+    }
+
+    #[test]
+    fn test_engine_new_multiple() {
+        let engine1 = JsEngine::new();
+        assert!(engine1.is_ok());
+        let engine2 = JsEngine::new();
+        assert!(engine2.is_ok());
+    }
+
+    #[test]
+    fn test_engine_default() {
+        let _engine = JsEngine::default();
+    }
+
+    #[test]
+    fn test_execute_to_string_various_types() {
+        let mut engine = JsEngine::new().unwrap();
+
+        assert_eq!(engine.execute_to_string("null").unwrap(), "null");
+        assert_eq!(engine.execute_to_string("undefined").unwrap(), "undefined");
+        assert_eq!(engine.execute_to_string("true").unwrap(), "true");
+        assert_eq!(engine.execute_to_string("false").unwrap(), "false");
+        assert_eq!(
+            engine.execute_to_string("({ a: 1 })").unwrap(),
+            "[object Object]"
+        );
+        assert_eq!(engine.execute_to_string("[1, 2, 3]").unwrap(), "1,2,3");
+        assert_eq!(engine.execute_to_string("42.5").unwrap(), "42.5");
+        assert_eq!(
+            engine.execute_to_string("(function() { return 1; })").unwrap(),
+            "function() { return 1; }"
+        );
+    }
+
+    #[test]
+    fn test_execute_to_string_syntax_error() {
+        let mut engine = JsEngine::new().unwrap();
+        let result = engine.execute_to_string("this is not valid js!");
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Failed to compile script");
+    }
+
+    #[test]
+    fn test_execute_to_string_runtime_error() {
+        let mut engine = JsEngine::new().unwrap();
+        let result = engine.execute_to_string("throw new Error('test error');");
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Script execution failed");
+    }
+
+    #[test]
+    fn test_perform_microtask_checkpoint() {
+        let mut engine = JsEngine::new().unwrap();
+        engine
+            .isolate
+            .set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
+
+        engine
+            .execute(
+                "var microtask_run = false;
+             Promise.resolve().then(() => { microtask_run = true; });",
+            )
+            .unwrap();
+
+        let before_checkpoint = engine.execute_to_string("microtask_run").unwrap();
+        assert_eq!(
+            before_checkpoint, "false",
+            "Microtask should not have run yet"
+        );
+
+        engine.perform_microtask_checkpoint();
+
+        let after_checkpoint = engine.execute_to_string("microtask_run").unwrap();
+        assert_eq!(
+            after_checkpoint, "true",
+            "Microtask should have run after checkpoint"
+        );
+    }
+
+    #[test]
+    fn test_initialize() {
+        use crate::servo_embed::dom::DomTree;
+        use crate::servo_embed::web_apis::{ConsoleApi, StorageApi, TimerManager};
+        use parking_lot::RwLock;
+        use std::sync::Arc;
+
+        let mut engine = JsEngine::new().unwrap();
+        let dom_tree = Arc::new(RwLock::new(DomTree::new()));
+        let console_api = Arc::new(RwLock::new(ConsoleApi::new()));
+        let timer_manager = Arc::new(RwLock::new(TimerManager::new()));
+        let local_storage = Arc::new(RwLock::new(StorageApi::new(1024)));
+        let session_storage = Arc::new(RwLock::new(StorageApi::new(1024)));
+
+        let is_document_defined = engine
+            .execute_to_string("typeof document !== 'undefined'")
+            .unwrap();
+        assert_eq!(is_document_defined, "false");
+
+        engine.initialize(V8ContextData::new(
+            dom_tree.clone(),
+            console_api.clone(),
+            timer_manager.clone(),
+            local_storage.clone(),
+            session_storage.clone(),
+        ));
+
+        let is_document_defined = engine
+            .execute_to_string("typeof document !== 'undefined'")
+            .unwrap();
+        assert_eq!(is_document_defined, "true");
+
+        engine.initialize(V8ContextData::new(
+            dom_tree,
+            console_api,
+            timer_manager,
+            local_storage,
+            session_storage,
+        ));
+
+        let is_document_defined = engine
+            .execute_to_string("typeof document !== 'undefined'")
+            .unwrap();
+        assert_eq!(is_document_defined, "true");
+    }
+
+    #[test]
+    fn test_call_timer_callback() {
+        use crate::servo_embed::dom::DomTree;
+        use crate::servo_embed::web_apis::{ConsoleApi, StorageApi, TimerManager};
+        use parking_lot::RwLock;
+        use std::sync::Arc;
+
+        let mut engine = JsEngine::new().unwrap();
+        let dom_tree = Arc::new(RwLock::new(DomTree::new()));
+        let console_api = Arc::new(RwLock::new(ConsoleApi::new()));
+        let timer_manager = Arc::new(RwLock::new(TimerManager::new()));
+        let local_storage = Arc::new(RwLock::new(StorageApi::new(1024)));
+        let session_storage = Arc::new(RwLock::new(StorageApi::new(1024)));
+
+        engine.initialize(V8ContextData::new(
+            dom_tree.clone(),
+            console_api.clone(),
+            timer_manager.clone(),
+            local_storage.clone(),
+            session_storage.clone(),
+        ));
+
+        engine
+            .execute("var result = 0; var id = setTimeout(function() { result = 42; }, 10);")
+            .unwrap();
+
+        assert_eq!(engine.execute_to_string("result").unwrap(), "0");
+
+        let timer_id = engine
+            .execute_to_string("id")
+            .unwrap()
+            .parse::<u64>()
+            .unwrap();
+
+        engine.call_timer_callback(timer_id);
+        assert_eq!(engine.execute_to_string("result").unwrap(), "42");
+
+        engine.call_timer_callback(9999);
+        assert_eq!(engine.execute_to_string("result").unwrap(), "42");
+    }
+
+    #[test]
+    fn test_dispatch_event_no_listeners() {
+        use crate::servo_embed::dom::{DomEvent, DomTree};
+        use crate::servo_embed::web_apis::{ConsoleApi, StorageApi, TimerManager};
+        use parking_lot::RwLock;
+        use std::sync::Arc;
+
+        let mut engine = JsEngine::new().unwrap();
+        let dom_tree = Arc::new(RwLock::new(DomTree::new()));
+        let console_api = Arc::new(RwLock::new(ConsoleApi::new()));
+        let timer_manager = Arc::new(RwLock::new(TimerManager::new()));
+        let local_storage = Arc::new(RwLock::new(StorageApi::new(1024)));
+        let session_storage = Arc::new(RwLock::new(StorageApi::new(1024)));
+
+        engine.initialize(V8ContextData::new(
+            dom_tree.clone(),
+            console_api,
+            timer_manager,
+            local_storage,
+            session_storage,
+        ));
+
+        let event = DomEvent {
+            event_type: "custom_event".to_string(),
+            target_id: dom_tree.read().document_id(),
+            client_x: None,
+            client_y: None,
+            button: None,
+            key: None,
+        };
+
+        assert_eq!(engine.dispatch_event(&event), 0);
     }
 }
