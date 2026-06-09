@@ -359,3 +359,62 @@ impl Browser {
         &self.storage
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_new_tab_success() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = BrowserConfig::default();
+        config.data_dirs.profile_dir = dir.path().to_path_buf();
+        config.incognito = true; // Use in-memory db for tests to avoid file locking issues
+        config.multi_process = false; // Use single process for tests
+
+        let mut browser = Browser::new(config).await.expect("Failed to create browser");
+
+        let url = "https://example.com";
+        let tab_id = browser.new_tab(url).await.expect("Failed to create new tab");
+
+        assert_eq!(tab_id.0, 1);
+        assert_eq!(browser.tab_count().await, 1);
+        assert_eq!(browser.active_tab().await, Some(tab_id));
+
+        let tabs = browser.tabs.read().await;
+        let tab = tabs.get(&tab_id).unwrap().lock().await;
+        assert_eq!(tab.url(), "https://example.com/");
+    }
+
+    #[tokio::test]
+    async fn test_new_tab_consecutive_ids() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = BrowserConfig::default();
+        config.data_dirs.profile_dir = dir.path().to_path_buf();
+        config.incognito = true;
+        config.multi_process = false;
+
+        let mut browser = Browser::new(config).await.expect("Failed to create browser");
+
+        let tab_id1 = browser.new_tab("https://example.com").await.expect("Failed");
+        let tab_id2 = browser.new_tab("https://example.org").await.expect("Failed");
+
+        assert_eq!(tab_id1.0, 1);
+        assert_eq!(tab_id2.0, 2);
+        assert_eq!(browser.tab_count().await, 2);
+    }
+
+    #[tokio::test]
+    async fn test_new_tab_empty_url() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = BrowserConfig::default();
+        config.data_dirs.profile_dir = dir.path().to_path_buf();
+        config.incognito = true;
+        config.multi_process = false;
+
+        let mut browser = Browser::new(config).await.expect("Failed to create browser");
+
+        let result = browser.new_tab("").await;
+        assert!(result.is_err());
+    }
+}
