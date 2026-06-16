@@ -148,7 +148,6 @@ mod tests {
     }
 
     #[test]
-<<<<<<< HEAD
     fn test_go_forward() {
         let mut nav = NavigationController::new("https://example.com".to_string());
 
