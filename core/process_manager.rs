@@ -1,6 +1,6 @@
 //! Process manager for Chrome-like multi-process architecture
 
-use log::{debug, info};
+use log::{debug, info, warn};
 #[cfg(target_os = "linux")]
 use nix::sched::sched_setaffinity;
 #[cfg(target_os = "linux")]
@@ -104,6 +104,10 @@ impl ProcessManager {
         // 2. Spawn child process
         let exe =
             std::env::current_exe().map_err(|e| format!("Failed to get current exe: {}", e))?;
+
+        if !server_name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+            return Err("Invalid server name".into());
+        }
 
         // We pass the bootstrap server name via --channel-id as expected by main.rs
         let child = Command::new(exe)
@@ -288,6 +292,10 @@ impl ProcessManager {
         let exe =
             std::env::current_exe().map_err(|e| format!("Failed to get current exe: {}", e))?;
 
+        if !channel_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+            return Err("Invalid channel id".into());
+        }
+
         let child = Command::new(exe)
             .arg("--type=gpu")
             .arg(format!("--channel-id={}", channel_id))
@@ -320,6 +328,10 @@ impl ProcessManager {
 
         let exe =
             std::env::current_exe().map_err(|e| format!("Failed to get current exe: {}", e))?;
+
+        if !channel_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+            return Err("Invalid channel id".into());
+        }
 
         let child = Command::new(exe)
             .arg("--type=network")
