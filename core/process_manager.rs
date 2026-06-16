@@ -10,9 +10,7 @@ use std::process::{Child, Command};
 use tokio::sync::Mutex;
 
 use super::TabId;
-use crate::ipc::{
-    self, BrowserMessage, IpcServer, RendererClient, RendererMessage,
-};
+use crate::ipc::{self, BrowserMessage, IpcServer, RendererClient, RendererMessage};
 
 /// Process manager for spawning and managing child processes
 pub struct ProcessManager {
@@ -137,13 +135,17 @@ impl ProcessManager {
         }
 
         // 3. Accept connection (handshake)
-        // Run blocking accept in a blocking task
-        let (_, tx_to_renderer) = tokio::task::spawn_blocking(move || {
-            bootstrap
-                .accept()
-                .map_err(|e| format!("Failed to accept connection from renderer: {}", e))
-        })
+        // Run blocking accept in a blocking task with a timeout
+        let (_, tx_to_renderer) = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            tokio::task::spawn_blocking(move || {
+                bootstrap
+                    .accept()
+                    .map_err(|e| format!("Failed to accept connection from renderer: {}", e))
+            }),
+        )
         .await
+        .map_err(|_| "Timeout waiting for renderer connection".to_string())?
         .map_err(|e| format!("Join error: {}", e))??;
 
         // 4. Create channel for receiving messages from renderer (BrowserMessage)
