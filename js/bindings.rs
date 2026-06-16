@@ -78,7 +78,7 @@ pub fn take_context_data(scope: &mut v8::HandleScope) -> Option<Box<V8ContextDat
     let _ = global.set(scope, key.into(), undefined.into());
 
     // SAFETY: `ptr` was created with `Box::into_raw` in `initialize_context`.
-    Some(unsafe { Box::from_raw(ptr) })
+    Some(unsafe { Box::from_raw(ptr.as_ptr()) })
 }
 
 fn set_context_data<'s>(scope: &mut v8::HandleScope<'s>, data_ptr: *mut V8ContextData) {
@@ -88,12 +88,12 @@ fn set_context_data<'s>(scope: &mut v8::HandleScope<'s>, data_ptr: *mut V8Contex
     let _ = global.set(scope, key.into(), external.into());
 }
 
-fn context_data_ptr(scope: &mut v8::HandleScope) -> Option<*mut V8ContextData> {
+fn context_data_ptr(scope: &mut v8::HandleScope) -> Option<std::ptr::NonNull<V8ContextData>> {
     let global = scope.get_current_context().global(scope);
     let key = v8::String::new(scope, CONTEXT_DATA_KEY)?;
     let value = global.get(scope, key.into())?;
     let external = v8::Local::<v8::External>::try_from(value).ok()?;
-    Some(external.value().cast::<V8ContextData>())
+    std::ptr::NonNull::new(external.value().cast::<V8ContextData>())
 }
 
 fn set_property<'s>(
@@ -764,7 +764,7 @@ fn create_event_object<'s>(
 pub(crate) fn get_context_data(scope: &mut v8::HandleScope) -> &'static V8ContextData {
     let ptr = context_data_ptr(scope).expect("V8 context data should be installed");
     // SAFETY: `ptr` is owned by the current V8 context and freed by `take_context_data`.
-    unsafe { &*ptr }
+    unsafe { ptr.as_ref() }
 }
 
 #[cfg(test)]
