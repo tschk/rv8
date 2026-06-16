@@ -4,8 +4,8 @@
 
 use crepuscularity_gpui::prelude::*;
 use gpui::{
-    actions, point, px, rgb, size, bounds, AnyElement, ClickEvent, Entity,
-    Focusable, KeyBinding, Render, StatefulInteractiveElement, Window,
+    actions, bounds, point, px, rgb, size, AnyElement, ClickEvent, Entity, Focusable, KeyBinding,
+    Render, StatefulInteractiveElement, Window,
 };
 
 actions!(
@@ -29,20 +29,35 @@ impl BrowserTab {
     fn new(id: u64, url: impl Into<String>) -> Self {
         let url = url.into();
         let title = title_from_url(&url);
-        Self { id, title, url, loading: true }
+        Self {
+            id,
+            title,
+            url,
+            loading: true,
+        }
     }
 }
 
 fn title_from_url(url: &str) -> String {
     let trimmed = url.trim();
-    if trimmed.is_empty() { return "New Tab".into(); }
+    if trimmed.is_empty() {
+        return "New Tab".into();
+    }
     let host = trimmed
         .strip_prefix("https://")
         .or_else(|| trimmed.strip_prefix("http://"))
         .unwrap_or(trimmed)
-        .split('/').next().unwrap_or(trimmed)
-        .split('@').next_back().unwrap_or(trimmed);
-    if host.len() > 28 { format!("{}…", &host[..25]) } else { host.to_string() }
+        .split('/')
+        .next()
+        .unwrap_or(trimmed)
+        .split('@')
+        .next_back()
+        .unwrap_or(trimmed);
+    if host.len() > 28 {
+        format!("{}…", &host[..25])
+    } else {
+        host.to_string()
+    }
 }
 
 struct ChromeView {
@@ -75,7 +90,10 @@ impl ChromeView {
     }
 
     fn active_url(&self) -> String {
-        self.tabs.get(self.active_tab).map(|t| t.url.clone()).unwrap_or_default()
+        self.tabs
+            .get(self.active_tab)
+            .map(|t| t.url.clone())
+            .unwrap_or_default()
     }
 
     fn new_tab(&mut self, _: &NewTab, _w: &mut Window, cx: &mut Context<Self>) {
@@ -88,7 +106,9 @@ impl ChromeView {
     }
 
     fn close_tab(&mut self, _: &CloseTab, _w: &mut Window, cx: &mut Context<Self>) {
-        if self.tabs.len() <= 1 { return; }
+        if self.tabs.len() <= 1 {
+            return;
+        }
         self.tabs.remove(self.active_tab);
         if self.active_tab >= self.tabs.len() {
             self.active_tab = self.tabs.len() - 1;
@@ -98,7 +118,9 @@ impl ChromeView {
     }
 
     fn select_tab(&mut self, idx: usize, cx: &mut Context<Self>) {
-        if idx >= self.tabs.len() || idx == self.active_tab { return; }
+        if idx >= self.tabs.len() || idx == self.active_tab {
+            return;
+        }
         self.active_tab = idx;
         self.omnibox_text = self.active_url();
         cx.notify();
@@ -123,10 +145,17 @@ impl ChromeView {
 
 fn normalize_url(input: &str) -> String {
     let t = input.trim();
-    if t.is_empty() { return "about:blank".into(); }
-    if t.contains("://") || t.starts_with("about:") { return t.to_string(); }
-    if t.contains('.') && !t.contains(' ') { format!("https://{t}") }
-    else { format!("https://duckduckgo.com/?q={}", t.replace(' ', "+")) }
+    if t.is_empty() {
+        return "about:blank".into();
+    }
+    if t.contains("://") || t.starts_with("about:") {
+        return t.to_string();
+    }
+    if t.contains('.') && !t.contains(' ') {
+        format!("https://{t}")
+    } else {
+        format!("https://duckduckgo.com/?q={}", t.replace(' ', "+"))
+    }
 }
 
 impl Render for ChromeView {
@@ -140,23 +169,43 @@ impl Render for ChromeView {
             let sel = idx == self.active_tab;
             let bg = if sel { CONTENT_BG } else { CHROME_BG };
             let mut el = div()
-                .flex().flex_row().items_center().gap_0p5()
-                .max_w(px(200.)).flex_shrink_0()
-                .px_2().py_1p5().rounded_t(px(7.))
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_0p5()
+                .max_w(px(200.))
+                .flex_shrink_0()
+                .px_2()
+                .py_1p5()
+                .rounded_t(px(7.))
                 .bg(rgb(bg))
-                .border_t_1().border_x_1()
+                .border_t_1()
+                .border_x_1()
                 .border_color(rgb(if sel { 0x3f3f46 } else { CHROME_BG }))
                 .hover(|s| s.bg(rgb(if sel { CONTENT_BG } else { 0x242424 })))
                 .child(
-                    div().flex_1().min_w_0().overflow_hidden()
-                        .text_sm().text_color(rgb(TEXT))
-                .child(if tab.loading { format!("○ {}", tab.title) } else { tab.title.clone() }),
-            );
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .overflow_hidden()
+                        .text_sm()
+                        .text_color(rgb(TEXT))
+                        .child(if tab.loading {
+                            format!("○ {}", tab.title)
+                        } else {
+                            tab.title.clone()
+                        }),
+                );
 
             if tab_count > 1 {
                 let close = div()
-                    .size(px(20.)).flex().items_center().justify_center()
-                    .rounded(px(4.)).text_sm().text_color(rgb(MUTED))
+                    .size(px(20.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(4.))
+                    .text_sm()
+                    .text_color(rgb(MUTED))
                     .hover(|s| s.bg(rgb(0x3f3f46)).text_color(rgb(TEXT)))
                     .child("×");
                 el = el.child(close);
@@ -165,37 +214,68 @@ impl Render for ChromeView {
         }
 
         let tab_strip = div()
-            .flex().flex_row().items_end().gap_0p5()
-            .pl(px(72.)).overflow_hidden()
+            .flex()
+            .flex_row()
+            .items_end()
+            .gap_0p5()
+            .pl(px(72.))
+            .overflow_hidden()
             .children(tab_els);
 
         let omnibox = div()
-            .flex_1().flex().flex_row().items_center()
-            .h(px(36.)).mx_1().px_3()
+            .flex_1()
+            .flex()
+            .flex_row()
+            .items_center()
+            .h(px(36.))
+            .mx_1()
+            .px_3()
             .rounded(px(18.))
             .bg(rgb(0x181818))
-            .border_1().border_color(rgb(0x3f3f46))
+            .border_1()
+            .border_color(rgb(0x3f3f46))
             .child(if secure {
                 div().text_xs().text_color(rgb(0x34d399)).px_1().child("🔒")
-            } else { div() })
+            } else {
+                div()
+            })
             .child(
-                div().flex_1().text_sm().text_color(rgb(TEXT))
-                    .overflow_hidden().child(self.omnibox_text.clone()),
+                div()
+                    .flex_1()
+                    .text_sm()
+                    .text_color(rgb(TEXT))
+                    .overflow_hidden()
+                    .child(self.omnibox_text.clone()),
             );
 
-        let content = div()
-            .flex_1().w_full().bg(rgb(CONTENT_BG))
-            .child(
-                div().flex_1().flex().flex_col().items_center().justify_center().gap_3()
-                    .child(div().text_lg().text_color(rgb(TEXT)).child("RV8"))
-                    .child(div().text_sm().text_color(rgb(MUTED))
-                        .child("Build with --features chrome,servo-render for embedded viewport"))
-                    .child(div().text_xs().text_color(rgb(0x52525b))
-                        .child("chrome-shell mode — tabs & navigation only")),
-            );
+        let content = div().flex_1().w_full().bg(rgb(CONTENT_BG)).child(
+            div()
+                .flex_1()
+                .flex()
+                .flex_col()
+                .items_center()
+                .justify_center()
+                .gap_3()
+                .child(div().text_lg().text_color(rgb(TEXT)).child("RV8"))
+                .child(
+                    div()
+                        .text_sm()
+                        .text_color(rgb(MUTED))
+                        .child("Build with --features chrome,servo-render for embedded viewport"),
+                )
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(rgb(0x52525b))
+                        .child("chrome-shell mode — tabs & navigation only"),
+                ),
+        );
 
         div()
-            .size_full().flex().flex_col().bg(rgb(CHROME_BG))
+            .size_full()
+            .flex()
+            .flex_col()
+            .bg(rgb(CHROME_BG))
             .on_action(cx.listener(Self::new_tab))
             .on_action(cx.listener(Self::close_tab))
             .on_action(cx.listener(Self::go_back))
@@ -204,20 +284,34 @@ impl Render for ChromeView {
             .on_action(cx.listener(Self::focus_omnibox))
             .child(tab_strip)
             .child(
-                div().flex().flex_row().items_center().gap_1p5().px_3().py_2()
-                    .min_h(px(44.)).bg(rgb(0x171717)).border_b_1().border_color(rgb(0x27272a))
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_1p5()
+                    .px_3()
+                    .py_2()
+                    .min_h(px(44.))
+                    .bg(rgb(0x171717))
+                    .border_b_1()
+                    .border_color(rgb(0x27272a))
                     .child(nav_icon("‹"))
                     .child(nav_icon("›"))
                     .child(nav_icon("↻"))
-                    .child(omnibox)
+                    .child(omnibox),
             )
             .child(content)
     }
 }
 
 fn nav_icon(label: &'static str) -> impl IntoElement {
-    div().size(px(32.)).flex().items_center().justify_center()
-        .rounded(px(8.)).text_color(rgb(TEXT))
+    div()
+        .size(px(32.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(8.))
+        .text_color(rgb(TEXT))
         .hover(|s| s.bg(rgb(0x242424)))
         .child(label)
 }
@@ -247,9 +341,13 @@ fn main() {
                 appears_transparent: true,
                 traffic_light_position: {
                     #[cfg(target_os = "macos")]
-                    { Some(point(px(14.), px(16.))) }
+                    {
+                        Some(point(px(14.), px(16.)))
+                    }
                     #[cfg(not(target_os = "macos"))]
-                    { None }
+                    {
+                        None
+                    }
                 },
             }),
             window_min_size: Some(size(px(640.), px(400.))),
@@ -266,8 +364,7 @@ fn main() {
             tabbing_identifier: None,
         };
 
-        cx.open_window(opts, |window, cx| {
-            cx.new(|cx| ChromeView::new(window, cx))
-        }).unwrap();
+        cx.open_window(opts, |window, cx| cx.new(|cx| ChromeView::new(window, cx)))
+            .unwrap();
     });
 }

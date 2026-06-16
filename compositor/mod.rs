@@ -168,10 +168,7 @@ impl Compositor {
         state.last_present = Some(Instant::now());
         state.latest_frame = Some(frame);
         state.push_damage(damage);
-        state.push_present_pass(RenderPass {
-            frame_id,
-            damage,
-        });
+        state.push_present_pass(RenderPass { frame_id, damage });
         state.pending_frame = false;
         debug!("Submitted frame {} ({}x{})", frame_id, width, height);
     }

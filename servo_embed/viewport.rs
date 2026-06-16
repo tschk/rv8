@@ -70,9 +70,10 @@ impl ServoViewport {
     }
 
     pub fn find_in_page(&self, query: &str, forward: bool) {
-        let _ = self
-            .tx
-            .send(ViewportCmd::FindInPage { query: query.to_string(), forward });
+        let _ = self.tx.send(ViewportCmd::FindInPage {
+            query: query.to_string(),
+            forward,
+        });
     }
 
     pub fn find_stop(&self) {
@@ -135,7 +136,10 @@ fn viewport_thread(
                     last_frame_push = Instant::now();
                 }
             }
-            Ok(ViewportCmd::Resize { width: w, height: h }) => {
+            Ok(ViewportCmd::Resize {
+                width: w,
+                height: h,
+            }) => {
                 width = w.max(1);
                 height = h.max(1);
                 renderer.resize(width, height);
@@ -192,8 +196,8 @@ fn viewport_thread(
             }
         }
 
-        let should_capture = renderer.has_pending_frame()
-            || last_frame_push.elapsed() > Duration::from_millis(250);
+        let should_capture =
+            renderer.has_pending_frame() || last_frame_push.elapsed() > Duration::from_millis(250);
         if should_capture {
             if let Some(frame) = renderer.capture_frame(generation) {
                 let mut s = snap.lock().expect("snap");
@@ -221,18 +225,22 @@ fn perform_find_in_page(renderer: &mut ServoRenderer, query: &str, forward: bool
     script.push_str(if forward { "true" } else { "false" });
     script.push_str(";if(window.__rv8_find_query!==q){window.__rv8_find_query=q;window.__rv8_find_idx=0;}const r=window.find(q,false,false,true,true,false);if(!r){window.__rv8_find_idx=0;return JSON.stringify({m:0,a:0});}window.__rv8_find_idx+=1;let c=0;const b=document.body;if(b){const t=b.innerText||b.textContent||'';let i=-1;while((i=t.indexOf(q,i+1))!==-1)c++;}return JSON.stringify({m:c,a:window.__rv8_find_idx});})()");
     match renderer.evaluate_script_sync(&script) {
-        Ok(val) => {
-            serde_json::from_str::<serde_json::Value>(&val)
-                .ok()
-                .and_then(|v| {
-                    Some(FindResult {
-                        matches: v.get("m")?.as_u64()? as u32,
-                        active: v.get("a")?.as_u64()? as u32,
-                    })
+        Ok(val) => serde_json::from_str::<serde_json::Value>(&val)
+            .ok()
+            .and_then(|v| {
+                Some(FindResult {
+                    matches: v.get("m")?.as_u64()? as u32,
+                    active: v.get("a")?.as_u64()? as u32,
                 })
-                .unwrap_or(FindResult { matches: 0, active: 0 })
-        }
-        Err(_) => FindResult { matches: 0, active: 0 },
+            })
+            .unwrap_or(FindResult {
+                matches: 0,
+                active: 0,
+            }),
+        Err(_) => FindResult {
+            matches: 0,
+            active: 0,
+        },
     }
 }
 
@@ -283,5 +291,9 @@ fn base64_decode(input: &str) -> Option<Vec<u8>> {
             out.push((buf >> bits) as u8);
         }
     }
-    if out.is_empty() { None } else { Some(out) }
+    if out.is_empty() {
+        None
+    } else {
+        Some(out)
+    }
 }

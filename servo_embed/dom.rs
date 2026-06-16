@@ -350,15 +350,14 @@ impl DomTree {
                 // ID selector
                 if selector.starts_with('#') {
                     if let Some(id_attr) = node.get_attribute("id") {
-                        if &format!("#{}", id_attr) == selector {
+                        if format!("#{}", id_attr) == selector {
                             return Some(id);
                         }
                     }
                 }
                 // Class selector
-                if selector.starts_with('.') {
+                if let Some(class_name) = selector.strip_prefix('.') {
                     if let Some(class_attr) = node.get_attribute("class") {
-                        let class_name = &selector[1..];
                         if class_attr.split_whitespace().any(|c| c == class_name) {
                             return Some(id);
                         }

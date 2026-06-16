@@ -51,10 +51,7 @@ impl ProfileStore {
         let profile_id = profile_id.into();
         Self {
             tree: None,
-            meta: parking_lot::RwLock::new(ProfileMeta::new(
-                profile_id.clone(),
-                profile_id,
-            )),
+            meta: parking_lot::RwLock::new(ProfileMeta::new(profile_id.clone(), profile_id)),
         }
     }
 

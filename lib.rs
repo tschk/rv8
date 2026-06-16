@@ -72,9 +72,9 @@ compile_error!(
 // Re-exports
 pub use compositor::Compositor;
 pub use core::{Browser, BrowserConfig, Tab, TabId};
-pub use js::JsValue;
 #[cfg(feature = "rv8-v8")]
 pub use js::JsEngine;
+pub use js::JsValue;
 pub use networking::{NetworkManager, Request, Response};
 pub use optimizations::{OptimizationFlags, PerformanceMonitor};
 pub use renderer::RenderFrame;

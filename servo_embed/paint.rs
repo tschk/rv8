@@ -39,7 +39,14 @@ pub fn paint_document_frame(frame: &mut RenderFrame, dom: &DomTree, ctx: &PaintC
         format!("{} — {}", ctx.title, host)
     };
     draw_text(frame, MARGIN_X, MARGIN_TOP, &header, MUTED, w);
-    fill(frame, MARGIN_X, MARGIN_TOP + LINE_H + 4, w - MARGIN_X * 2, 1, BORDER);
+    fill(
+        frame,
+        MARGIN_X,
+        MARGIN_TOP + LINE_H + 4,
+        w - MARGIN_X * 2,
+        1,
+        BORDER,
+    );
 
     let mut y = MARGIN_TOP + LINE_H + 16;
     let max_w = w - MARGIN_X * 2;
@@ -90,19 +97,22 @@ fn paint_subtree(
                     y = draw_wrapped_text(frame, x, y, &trimmed, TEXT, max_w, frame_w, frame_h);
                 }
             }
-            return y;
+            y
         }
-        NodeType::Comment | NodeType::DocumentFragment => return y,
+        NodeType::Comment | NodeType::DocumentFragment => y,
         NodeType::Document => {
             for &child in &node.children {
                 y = paint_subtree(frame, dom, child, x, y, max_w, frame_w, frame_h, in_head);
             }
-            return y;
+            y
         }
         NodeType::Element => {
             let tag = node.tag_name.as_deref().unwrap_or("");
             let head = in_head || tag == "head";
-            if matches!(tag, "script" | "style" | "meta" | "link" | "noscript" | "template") {
+            if matches!(
+                tag,
+                "script" | "style" | "meta" | "link" | "noscript" | "template"
+            ) {
                 return y;
             }
             if tag == "title" {
@@ -116,8 +126,12 @@ fn paint_subtree(
                 let (color, gap_before, gap_after) = element_style(tag);
                 y += gap_before;
                 for &child in &node.children {
-                    if dom.get_node(child).is_some_and(|n| n.node_type == NodeType::Text) {
-                        if let Some(text) = dom.get_node(child).and_then(|n| n.text_content.clone()) {
+                    if dom
+                        .get_node(child)
+                        .is_some_and(|n| n.node_type == NodeType::Text)
+                    {
+                        if let Some(text) = dom.get_node(child).and_then(|n| n.text_content.clone())
+                        {
                             let trimmed = collapse_ws(&text);
                             if !trimmed.is_empty() {
                                 y = draw_wrapped_text(
@@ -126,9 +140,7 @@ fn paint_subtree(
                             }
                         }
                     } else {
-                        y = paint_subtree(
-                            frame, dom, child, x, y, max_w, frame_w, frame_h, head,
-                        );
+                        y = paint_subtree(frame, dom, child, x, y, max_w, frame_w, frame_h, head);
                     }
                 }
                 y += gap_after;
@@ -138,7 +150,7 @@ fn paint_subtree(
             for &child in &node.children {
                 y = paint_subtree(frame, dom, child, x, y, max_w, frame_w, frame_h, head);
             }
-            return y;
+            y
         }
     }
 }
@@ -152,9 +164,7 @@ fn element_style(tag: &str) -> ([u8; 4], i32, i32) {
         "code" | "pre" => ([39, 39, 42, 255], 4, 8),
         "blockquote" => (MUTED, 6, 10),
         "li" => (TEXT, 2, 4),
-        "p" | "div" | "section" | "article" | "main" | "header" | "footer" | "nav" => {
-            (TEXT, 6, 8)
-        }
+        "p" | "div" | "section" | "article" | "main" | "header" | "footer" | "nav" => (TEXT, 6, 8),
         _ => (TEXT, 2, 4),
     }
 }

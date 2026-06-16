@@ -219,7 +219,10 @@ mod tests {
             JsValue::String("hello".to_string())
         );
         assert_eq!(engine.execute("[1, 2, 3]").unwrap(), JsValue::Array);
-        assert_eq!(engine.execute("(function() {})").unwrap(), JsValue::Function);
+        assert_eq!(
+            engine.execute("(function() {})").unwrap(),
+            JsValue::Function
+        );
         assert_eq!(engine.execute("({ a: 1 })").unwrap(), JsValue::Object);
 
         let err_result = engine.execute("invalid js syntax !!!");
@@ -361,7 +364,9 @@ mod tests {
         assert_eq!(engine.execute_to_string("[1, 2, 3]").unwrap(), "1,2,3");
         assert_eq!(engine.execute_to_string("42.5").unwrap(), "42.5");
         assert_eq!(
-            engine.execute_to_string("(function() { return 1; })").unwrap(),
+            engine
+                .execute_to_string("(function() { return 1; })")
+                .unwrap(),
             "function() { return 1; }"
         );
     }

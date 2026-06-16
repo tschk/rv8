@@ -24,10 +24,8 @@ where
     ipc::channel().map_err(|e| e.to_string())
 }
 
-pub fn bridge_ipc_receiver<T>(
-    rx: IpcReceiver<T>,
-    tx: tokio::sync::mpsc::UnboundedSender<T>,
-) where
+pub fn bridge_ipc_receiver<T>(rx: IpcReceiver<T>, tx: tokio::sync::mpsc::UnboundedSender<T>)
+where
     T: serde::Serialize + for<'de> serde::Deserialize<'de> + Send + 'static,
 {
     std::thread::spawn(move || {
@@ -324,7 +322,7 @@ impl IpcServer {
         // Extract tab_id from channel name
         let tab_id = channel_id
             .split('-')
-            .last()
+            .next_back()
             .and_then(|s| s.parse::<u64>().ok())
             .unwrap_or(0);
 

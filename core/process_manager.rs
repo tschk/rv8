@@ -1,6 +1,6 @@
 //! Process manager for Chrome-like multi-process architecture
 
-use log::{debug, info, warn};
+use log::{debug, info};
 #[cfg(target_os = "linux")]
 use nix::sched::sched_setaffinity;
 #[cfg(target_os = "linux")]
@@ -103,7 +103,10 @@ impl ProcessManager {
         let exe =
             std::env::current_exe().map_err(|e| format!("Failed to get current exe: {}", e))?;
 
-        if !server_name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+        if !server_name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        {
             return Err("Invalid server name".into());
         }
 
@@ -203,7 +206,7 @@ impl ProcessManager {
             ipc::channel::<RendererMessage>().map_err(|e| e.to_string())?;
 
         // Channel 2: Renderer -> Browser (BrowserMessage)
-        let (tx_to_browser, rx_from_renderer) =
+        let (_tx_to_browser, rx_from_renderer) =
             ipc::channel::<BrowserMessage>().map_err(|e| e.to_string())?;
 
         // Handle rx_from_renderer (Browser side)
@@ -227,6 +230,14 @@ impl ProcessManager {
         let (mpsc_tx, mpsc_rx) = tokio::sync::mpsc::unbounded_channel();
 
         crate::ipc::bridge_ipc_receiver(rx_from_browser, mpsc_tx);
+
+        // Spawn a task to consume messages from the bridge (prevents channel closure)
+        tokio::spawn(async move {
+            let mut _rx = mpsc_rx;
+            while let Some(_msg) = _rx.recv().await {
+                // In single-process mode, messages are handled in-process
+            }
+        });
 
         // We can't easily spawn RendererProcess here because we don't have access to ServoConfig easily?
         // But let's assume we can construct it.
@@ -289,12 +300,15 @@ impl ProcessManager {
         let channel_id = "gpu-process";
         info!("Spawning GPU process with channel {}", channel_id);
 
-        let (channel, _rx) = self.ipc_server.create_channel(channel_id)?;
+        let (_channel, _rx) = self.ipc_server.create_channel(channel_id)?;
 
         let exe =
             std::env::current_exe().map_err(|e| format!("Failed to get current exe: {}", e))?;
 
-        if !channel_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+        if !channel_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        {
             return Err("Invalid channel id".into());
         }
 
@@ -326,12 +340,15 @@ impl ProcessManager {
         let channel_id = "network-process";
         info!("Spawning network process with channel {}", channel_id);
 
-        let (channel, _rx) = self.ipc_server.create_channel(channel_id)?;
+        let (_channel, _rx) = self.ipc_server.create_channel(channel_id)?;
 
         let exe =
             std::env::current_exe().map_err(|e| format!("Failed to get current exe: {}", e))?;
 
-        if !channel_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+        if !channel_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        {
             return Err("Invalid channel id".into());
         }
 

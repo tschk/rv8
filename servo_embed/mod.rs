@@ -11,7 +11,6 @@
 use log::{debug, info};
 use parking_lot::RwLock;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 
 use crate::js::JsValue;
 use crate::renderer::RenderFrame;
@@ -188,7 +187,7 @@ impl ServoEmbedder {
                             {
                                 let mut dom = self.dom_tree.write();
                                 *dom = DomTree::new();
-                                parser::parse_html(&html, &mut *dom);
+                                parser::parse_html(&html, &mut dom);
                             }
                             self.title = self.dom_tree.read().document_title().unwrap_or_default();
                             info!("HTML parsing complete");
@@ -267,7 +266,7 @@ impl ServoEmbedder {
                 loading: self.loading,
             };
             paint::paint_document_frame(&mut frame, &dom, &ctx);
-            return Some(frame);
+            Some(frame)
         }
 
         #[cfg(feature = "servo-render")]

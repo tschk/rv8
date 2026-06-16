@@ -2,7 +2,6 @@
 
 use log::{debug, info};
 use std::sync::Arc;
-use tokio::sync::Mutex;
 
 use super::NavigationController;
 use crate::ipc::RendererClient;
@@ -220,7 +219,7 @@ impl Tab {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ipc::{RendererClient, RendererMessage, channel};
+    use crate::ipc::{channel, RendererClient, RendererMessage};
     use crate::networking::NetworkManager;
     use crate::storage::StorageManager;
     use std::sync::Arc;

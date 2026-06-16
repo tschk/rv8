@@ -42,7 +42,7 @@ impl<'a> TokenSink for DomBuilder<'a> {
                         // Actually tokenizer produces tags/attrs where name is LocalName (Atom).
                         if let Some(node) = self.dom.borrow_mut().get_node_mut(node_id) {
                             for attr in tag.attrs {
-                                node.set_attribute(&attr.name.local.to_string(), &attr.value);
+                                node.set_attribute(attr.name.local.as_ref(), &attr.value);
                             }
                         }
 
@@ -108,6 +108,6 @@ pub fn parse_html(html: &str, dom: &mut DomTree) {
     let mut queue = BufferQueue::default();
     queue.push_back(html.into());
 
-    let _ = tokenizer.feed(&mut queue);
+    let _ = tokenizer.feed(&queue);
     tokenizer.end();
 }

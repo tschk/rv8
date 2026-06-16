@@ -40,12 +40,7 @@ fn write_frame(
     out.flush()
 }
 
-fn write_meta(
-    out: &mut impl Write,
-    generation: u64,
-    title: &str,
-    url: &str,
-) -> io::Result<()> {
+fn write_meta(out: &mut impl Write, generation: u64, title: &str, url: &str) -> io::Result<()> {
     let title_bytes = title.as_bytes();
     let url_bytes = url.as_bytes();
     out.write_all(META_MAGIC)?;
@@ -57,12 +52,7 @@ fn write_meta(
     out.flush()
 }
 
-fn write_favicon(
-    out: &mut impl Write,
-    mime: &str,
-    data: &[u8],
-    generation: u32,
-) -> io::Result<()> {
+fn write_favicon(out: &mut impl Write, mime: &str, data: &[u8], generation: u32) -> io::Result<()> {
     let mime_bytes = mime.as_bytes();
     out.write_all(FAVI_MAGIC)?;
     out.write_all(&(mime_bytes.len() as u32).to_le_bytes())?;
@@ -128,7 +118,10 @@ fn main() {
                 let mut parts = rest.split_whitespace();
                 if let (Some(w), Some(h)) = (parts.next(), parts.next()) {
                     if let (Ok(w), Ok(h)) = (w.parse::<u32>(), h.parse::<u32>()) {
-                        let _ = cmd_tx.send(Cmd::Resize { width: w, height: h });
+                        let _ = cmd_tx.send(Cmd::Resize {
+                            width: w,
+                            height: h,
+                        });
                     }
                 }
                 continue;
@@ -137,7 +130,10 @@ fn main() {
                 let mut parts = rest.split_whitespace();
                 if let (Some(dx), Some(dy)) = (parts.next(), parts.next()) {
                     if let (Ok(dx), Ok(dy)) = (dx.parse::<f32>(), dy.parse::<f32>()) {
-                        let _ = cmd_tx.send(Cmd::Scroll { delta_x: dx, delta_y: dy });
+                        let _ = cmd_tx.send(Cmd::Scroll {
+                            delta_x: dx,
+                            delta_y: dy,
+                        });
                     }
                 }
                 continue;
@@ -146,7 +142,10 @@ fn main() {
                 let mut parts = rest.splitn(2, ' ');
                 if let (Some(query), Some(dir_str)) = (parts.next(), parts.next()) {
                     let forward = dir_str.trim() == "FWD";
-                    let _ = cmd_tx.send(Cmd::FindInPage { query: query.to_string(), forward });
+                    let _ = cmd_tx.send(Cmd::FindInPage {
+                        query: query.to_string(),
+                        forward,
+                    });
                 }
                 continue;
             }
@@ -190,12 +189,7 @@ fn main() {
             last_title = snap.title.clone();
             last_url = snap.url.clone();
             let mut out = io::stdout().lock();
-            let _ = write_meta(
-                &mut out,
-                snap.frame_generation,
-                &snap.title,
-                &snap.url,
-            );
+            let _ = write_meta(&mut out, snap.frame_generation, &snap.title, &snap.url);
         }
         if snap.frame_generation != last_gen {
             if let Some(ref px) = snap.pixels {

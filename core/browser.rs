@@ -9,7 +9,6 @@ use super::{BrowserConfig, ProcessManager, Tab, TabId};
 use crate::compositor::Compositor;
 use crate::ipc::BrowserMessage;
 use crate::networking::NetworkManager;
-use crate::renderer::RenderFrame;
 use crate::optimizations::{OptimizationFlags, PerformanceMonitor};
 use crate::storage::StorageManager;
 
@@ -183,14 +182,11 @@ impl Browser {
         // Navigate to URL
         self.navigate_tab(tab_id, url).await?;
 
-        let _ = self
-            .storage
-            .session
-            .upsert_tab(crate::storage::SessionTab {
-                tab_id: tab_id.0,
-                url: url.to_string(),
-                title: String::new(),
-            });
+        let _ = self.storage.session.upsert_tab(crate::storage::SessionTab {
+            tab_id: tab_id.0,
+            url: url.to_string(),
+            title: String::new(),
+        });
         let _ = self.storage.session.set_active_tab(Some(tab_id.0));
 
         Ok(tab_id)
@@ -399,12 +395,16 @@ mod tests {
         config.data_dirs = data_dirs;
         config.user_data_dir = temp_dir.path().join("profile");
 
-        let browser = Browser::new(config).await.expect("Failed to create Browser");
+        let browser = Browser::new(config)
+            .await
+            .expect("Failed to create Browser");
 
         assert_eq!(browser.tab_count().await, 0);
         assert!(browser.active_tab().await.is_none());
         assert_eq!(
-            browser.next_tab_id.load(std::sync::atomic::Ordering::SeqCst),
+            browser
+                .next_tab_id
+                .load(std::sync::atomic::Ordering::SeqCst),
             1
         );
     }
@@ -432,7 +432,9 @@ mod tests {
         assert_eq!(browser.tab_count().await, 0);
         assert!(browser.active_tab().await.is_none());
         assert_eq!(
-            browser.next_tab_id.load(std::sync::atomic::Ordering::SeqCst),
+            browser
+                .next_tab_id
+                .load(std::sync::atomic::Ordering::SeqCst),
             1
         );
         assert!(browser.config.incognito);

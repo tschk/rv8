@@ -1,6 +1,6 @@
 //! V8 JavaScript engine optimizations
 
-use log::{debug, info};
+use log::info;
 
 /// V8 optimization controller
 pub struct V8Optimizations {
