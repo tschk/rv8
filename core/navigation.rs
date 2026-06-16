@@ -146,4 +146,28 @@ mod tests {
 
         assert!(!nav.can_go_forward());
     }
+
+    #[test]
+    fn test_set_current_title() {
+        let mut nav = NavigationController::new("https://example.com".to_string());
+
+        // Initial state
+        assert_eq!(nav.current().unwrap().title, None);
+
+        // Set title for initial entry
+        nav.set_current_title("Example Domain".to_string());
+        assert_eq!(nav.current().unwrap().title, Some("Example Domain".to_string()));
+
+        // Push a new entry, its title should be None
+        nav.push("https://example.org".to_string());
+        assert_eq!(nav.current().unwrap().title, None);
+
+        // Set title for the new entry
+        nav.set_current_title("Example Org".to_string());
+        assert_eq!(nav.current().unwrap().title, Some("Example Org".to_string()));
+
+        // Go back and verify the title is still correct
+        nav.go_back();
+        assert_eq!(nav.current().unwrap().title, Some("Example Domain".to_string()));
+    }
 }
