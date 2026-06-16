@@ -52,3 +52,38 @@ impl MemoryOptimizer {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_under_pressure_true() {
+        let mut opt = MemoryOptimizer::default();
+        opt.pressure_threshold = 0.0; // always trigger
+        assert!(opt.is_under_pressure());
+    }
+
+    #[test]
+    fn test_is_under_pressure_false() {
+        let mut opt = MemoryOptimizer::default();
+        opt.pressure_threshold = 2.0; // never trigger
+        assert!(!opt.is_under_pressure());
+    }
+
+    #[test]
+    fn test_handle_pressure_under_pressure() {
+        let mut opt = MemoryOptimizer::default();
+        opt.pressure_threshold = 0.0;
+        // Just verify it doesn't panic for now
+        opt.handle_pressure();
+    }
+
+    #[test]
+    fn test_handle_pressure_no_pressure() {
+        let mut opt = MemoryOptimizer::default();
+        opt.pressure_threshold = 2.0;
+        // Verify no panic
+        opt.handle_pressure();
+    }
+}
