@@ -112,7 +112,7 @@ impl RendererProcess {
             } => {
                 use crate::ipc::MouseEventType;
                 match event_type {
-                    MouseEventType::Move => self.embedder.handle_mouse_move(x, y),
+                    MouseEventType::Move => self.embedder.handle_mouse_move(x, y).await,
                     MouseEventType::Click => {
                         self.embedder
                             .handle_mouse_click(x, y, crate::servo_embed::MouseButton::Left)

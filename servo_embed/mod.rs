@@ -286,15 +286,24 @@ impl ServoEmbedder {
     }
 
     /// Handle mouse event
-    pub fn handle_mouse_move(&mut self, x: f32, y: f32) {
-        // TODO: Forward to Servo's event handling
+    pub async fn handle_mouse_move(&mut self, x: f32, y: f32) {
+        debug!("Mouse move: ({}, {})", x, y);
+        let target_id = self.dom_tree.read().document_id();
+        let event = DomEvent::mouse("mousemove", target_id, x, y, MouseButton::Left);
+        self.dom_tree.write().record_event(event.clone());
+
         #[cfg(feature = "servo-render")]
         if let Some(ref mut servo) = self.servo {
             servo.handle_mouse_move(x, y);
             self.frame_generation = self.frame_generation.saturating_add(1);
             return;
         }
-        debug!("Mouse move: ({}, {})", x, y);
+
+        #[cfg(feature = "rv8-v8")]
+        {
+            let mut engine = self.js_engine.lock().await;
+            engine.dispatch_event(&event);
+        }
     }
 
     /// Handle mouse click
