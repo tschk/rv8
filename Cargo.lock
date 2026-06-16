@@ -7149,13 +7149,13 @@ dependencies = [
  "reqwest",
  "rustls",
  "rusty_v8",
+ "rv8_browser_optimizations",
  "selectors 0.28.0",
  "serde",
  "serde_json",
  "servo",
  "servo-embedder-traits",
  "sled",
- "soliloquy_browser_optimizations",
  "sysinfo",
  "tempfile",
  "tokio",
@@ -7165,6 +7165,25 @@ dependencies = [
  "url",
  "wayland-client",
  "x11rb",
+]
+
+[[package]]
+name = "rv8_browser_optimizations"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "bytemuck",
+ "futures",
+ "log",
+ "pollster 0.3.0",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sled",
+ "sysinfo",
+ "wgpu",
+ "zstd",
 ]
 
 [[package]]
@@ -9050,25 +9069,6 @@ checksum = "3a766e1110788c36f4fa1c2b71b387a7815aa65f88ce0229841826633d93723e"
 dependencies = [
  "libc",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "soliloquy_browser_optimizations"
-version = "0.1.0"
-dependencies = [
- "bincode",
- "bytemuck",
- "futures",
- "log",
- "pollster 0.3.0",
- "reqwest",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "sled",
- "sysinfo",
- "wgpu",
- "zstd",
 ]
 
 [[package]]

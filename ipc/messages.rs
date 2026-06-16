@@ -3,7 +3,7 @@
 //! Defines all message types for inter-process communication.
 
 use serde::{Deserialize, Serialize};
-use soliloquy_browser_optimizations::runtime::{SurfaceDescriptor, SurfaceId, SurfaceSize};
+use rv8_browser_optimizations::runtime::{SurfaceDescriptor, SurfaceId, SurfaceSize};
 
 use crate::js::JsValue;
 use crate::renderer::RenderFrame;

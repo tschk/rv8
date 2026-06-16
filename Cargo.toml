@@ -43,7 +43,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "sync", "time", "fs", "net", "io-util", "macros"] }
 futures = "0.3"
 async-channel = "2.2"
-soliloquy_browser_optimizations = { path = "../soliloquy/src" }
+rv8_browser_optimizations = { path = "crates/rv8_browser_optimizations" }
 
 # gpui = { git = "https://github.com/zed-industries/zed", package = "gpui" }
 gpui = { version = "=0.2.2", optional = true, default-features = false, features = ["font-kit"] }
