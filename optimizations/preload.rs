@@ -51,33 +51,55 @@ impl Preloader {
     /// Process pending hints
     pub async fn process(&mut self) {
         let hints: Vec<_> = self.hints.drain().collect();
+        let mut futures = Vec::new();
 
         for hint in hints {
-            match &hint {
-                PreloadHint::DnsPrefetch(domain) => {
-                    // Trigger DNS lookup
-                    let _ = tokio::net::lookup_host(format!("{}:443", domain)).await;
-                }
-                PreloadHint::Preconnect(origin) => {
-                    // Establish connection
-                    // TODO: Implement connection pool warming
-                    let _ = self.client.head(origin).send().await;
-                }
-                PreloadHint::Prefetch(url) => {
-                    // Fetch resource to cache
-                    if let Ok(response) = self.client.get(url).send().await {
-                        if let Ok(bytes) = response.bytes().await {
-                            self.cache.insert(url.to_string(), bytes);
+            let client = self.client.clone();
+            let hint_clone = hint.clone();
+            let future = async move {
+                let cache_item = match &hint_clone {
+                    PreloadHint::DnsPrefetch(domain) => {
+                        // Trigger DNS lookup
+                        let _ = tokio::net::lookup_host(format!("{}:443", domain)).await;
+                        None
+                    }
+                    PreloadHint::Preconnect(origin) => {
+                        // Establish connection
+                        // TODO: Implement connection pool warming
+                        let _ = client.head(origin).send().await;
+                        None
+                    }
+                    PreloadHint::Prefetch(url) => {
+                        // Fetch resource to cache
+                        if let Ok(response) = client.get(url).send().await {
+                            if let Ok(bytes) = response.bytes().await {
+                                Some((url.to_string(), bytes))
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
                         }
                     }
-                }
-                PreloadHint::Prerender(url) => {
-                    // Prerender page in background
-                    // TODO: Implement prerendering
-                    if let Ok(response) = self.client.get(url).send().await {
-                        let _ = response.bytes().await;
+                    PreloadHint::Prerender(url) => {
+                        // Prerender page in background
+                        // TODO: Implement prerendering
+                        if let Ok(response) = client.get(url).send().await {
+                            let _ = response.bytes().await;
+                        }
+                        None
                     }
-                }
+                };
+                (hint_clone, cache_item)
+            };
+            futures.push(future);
+        }
+
+        let results = futures::future::join_all(futures).await;
+
+        for (hint, cache_item) in results {
+            if let Some((url, bytes)) = cache_item {
+                self.cache.insert(url, bytes);
             }
             self.completed.insert(hint);
         }
@@ -106,6 +128,9 @@ mod tests {
 
         let cached = preloader.get_from_cache(url);
         assert!(cached.is_some(), "Resource should be cached");
-        assert!(!cached.unwrap().is_empty(), "Cached resource should not be empty");
+        assert!(
+            !cached.unwrap().is_empty(),
+            "Cached resource should not be empty"
+        );
     }
 }
