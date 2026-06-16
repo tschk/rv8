@@ -65,8 +65,18 @@ impl Preloader {
                     }
                     PreloadHint::Preconnect(origin) => {
                         // Establish connection
-                        // TODO: Implement connection pool warming
-                        let _ = client.head(origin).send().await;
+                        // Implement connection pool warming.
+                        // reqwest connection pools open a single connection per request.
+                        // By spawning multiple HTTP GETs (that get aborted or return small payload)
+                        // or HEADs, we can warm up the connection pool to have multiple connections ready.
+                        // However, we need to pass a clone of the origin or a reference since reqwest's head takes IntoUrl
+                        // and consumes the value if it's not a reference or cloneable.
+
+                        let origin_str = origin.as_str();
+                        let req1 = client.head(origin_str).send();
+                        let req2 = client.head(origin_str).send();
+                        let req3 = client.head(origin_str).send();
+                        let _ = tokio::join!(req1, req2, req3);
                         None
                     }
                     PreloadHint::Prefetch(url) => {
