@@ -146,4 +146,37 @@ mod tests {
 
         assert!(!nav.can_go_forward());
     }
+
+    #[test]
+    fn test_go_forward() {
+        let mut nav = NavigationController::new("https://example.com".to_string());
+
+        // Cannot go forward initially
+        assert!(!nav.can_go_forward());
+        assert_eq!(nav.go_forward(), None);
+
+        nav.push("https://example.org".to_string());
+        nav.push("https://example.net".to_string());
+
+        // Still cannot go forward when at the latest entry
+        assert!(!nav.can_go_forward());
+        assert_eq!(nav.go_forward(), None);
+
+        // Go back two steps
+        assert_eq!(nav.go_back(), Some("https://example.org".to_string()));
+        assert_eq!(nav.go_back(), Some("https://example.com".to_string()));
+
+        // Now we can go forward
+        assert!(nav.can_go_forward());
+        assert_eq!(nav.go_forward(), Some("https://example.org".to_string()));
+        assert_eq!(nav.current_index(), 1);
+
+        assert!(nav.can_go_forward());
+        assert_eq!(nav.go_forward(), Some("https://example.net".to_string()));
+        assert_eq!(nav.current_index(), 2);
+
+        // Cannot go forward anymore
+        assert!(!nav.can_go_forward());
+        assert_eq!(nav.go_forward(), None);
+    }
 }
