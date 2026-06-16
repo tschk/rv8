@@ -15,6 +15,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Clone sibling repos
+        run: |
+          git clone --depth 1 https://github.com/tschk/soliloquy.git ../soliloquy
+          git clone --depth 1 https://github.com/tschk/crepuscularity.git ../crepuscularity
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo check --no-default-features
@@ -24,6 +30,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Clone sibling repos
+        run: |
+          git clone --depth 1 https://github.com/tschk/soliloquy.git ../soliloquy
+          git clone --depth 1 https://github.com/tschk/crepuscularity.git ../crepuscularity
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --no-default-features
@@ -33,6 +45,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Clone sibling repos
+        run: |
+          git clone --depth 1 https://github.com/tschk/soliloquy.git ../soliloquy
+          git clone --depth 1 https://github.com/tschk/crepuscularity.git ../crepuscularity
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
