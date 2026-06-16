@@ -7,14 +7,6 @@ edition = "2021"
 name = "rv8_browser_optimizations"
 path = "lib.rs"
 
-[[example]]
-name = "browser_simulation"
-path = "../examples/browser_simulation.rs"
-
-[[example]]
-name = "production_demo"
-path = "../examples/production_demo.rs"
-
 [dependencies]
 log = "0.4"
 zstd = "0.13"
