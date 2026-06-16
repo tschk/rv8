@@ -122,13 +122,15 @@ impl CookieJar {
 
     pub fn replace_all(&self, snapshot: CookieJarSnapshot) -> Result<(), StorageError> {
         if let Some(tree) = &self.tree {
+            let mut batch = sled::Batch::default();
             for item in tree.iter() {
                 let (key, _) = item?;
-                tree.remove(key)?;
+                batch.remove(key);
             }
             for cookie in &snapshot.cookies {
-                tree.insert(cookie.key().as_bytes(), serde_json::to_vec(cookie)?)?;
+                batch.insert(cookie.key().as_bytes(), serde_json::to_vec(cookie)?);
             }
+            tree.apply_batch(batch)?;
             tree.flush()?;
         }
         *self.cache.write() = snapshot.cookies.into_iter().map(|c| (c.key(), c)).collect();
@@ -182,9 +184,7 @@ mod tests {
             same_site: Some(SameSite::Lax),
         };
         jar.insert(cookie.clone()).expect("insert");
-        let got = jar
-            .get("example.com", "/", "sid")
-            .expect("cookie present");
+        let got = jar.get("example.com", "/", "sid").expect("cookie present");
         assert_eq!(got, cookie);
     }
 
