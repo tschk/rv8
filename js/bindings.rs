@@ -460,14 +460,15 @@ fn text_content_getter(
     let Some(node_id) = get_number_property(scope, args.this(), NODE_ID_KEY) else {
         return;
     };
-    let text = {
+    let v8_str = {
         let dom_tree = get_context_data(scope).dom_tree.read();
-        dom_tree
+        let text = dom_tree
             .get_node(node_id)
-            .and_then(|node| node.text_content.clone())
-            .unwrap_or_default()
+            .and_then(|node| node.text_content.as_deref())
+            .unwrap_or_default();
+        v8::String::new(scope, text)
     };
-    if let Some(value) = v8::String::new(scope, &text) {
+    if let Some(value) = v8_str {
         rv.set(value.into());
     }
 }
