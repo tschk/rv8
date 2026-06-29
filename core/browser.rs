@@ -13,7 +13,6 @@ use crate::optimizations::{OptimizationFlags, PerformanceMonitor};
 use crate::storage::StorageManager;
 
 /// Main browser instance
-#[allow(dead_code)]
 pub struct Browser {
     /// Browser configuration
     config: BrowserConfig,
