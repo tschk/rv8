@@ -36,14 +36,14 @@ pub struct Response {
 
 /// Network process (runs in child process)
 pub struct NetworkProcess {
-    channel_id: String,
+    _channel_id: String,
 }
 
 impl NetworkProcess {
     pub async fn new(channel_id: &str) -> Self {
         info!("Network process initializing with channel: {}", channel_id);
         NetworkProcess {
-            channel_id: channel_id.to_string(),
+            _channel_id: channel_id.to_string(),
         }
     }
 

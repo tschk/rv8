@@ -1,6 +1,8 @@
 //! Process manager for Chrome-like multi-process architecture
 
-use log::{debug, info, warn};
+#[cfg(target_os = "linux")]
+use log::warn;
+use log::{debug, info};
 #[cfg(target_os = "linux")]
 use nix::sched::sched_setaffinity;
 #[cfg(target_os = "linux")]
@@ -29,7 +31,8 @@ pub struct ProcessManager {
     /// IPC server for child process communication
     ipc_server: IpcServer,
 
-    /// Core assignment counter for per-tab isolation
+    /// Core assignment counter for per-tab isolation (Linux CPU pinning)
+    #[cfg(target_os = "linux")]
     core_counter: std::sync::atomic::AtomicUsize,
 
     /// Optional forwarder for renderer → browser messages
@@ -53,6 +56,7 @@ impl ProcessManager {
             gpu_process: Mutex::new(None),
             network_process: Mutex::new(None),
             ipc_server: IpcServer::new(),
+            #[cfg(target_os = "linux")]
             core_counter: std::sync::atomic::AtomicUsize::new(0),
             browser_events: Mutex::new(None),
         }
@@ -67,6 +71,7 @@ impl ProcessManager {
             gpu_process: Mutex::new(None),
             network_process: Mutex::new(None),
             ipc_server: IpcServer::new(),
+            #[cfg(target_os = "linux")]
             core_counter: std::sync::atomic::AtomicUsize::new(0),
             browser_events: Mutex::new(None),
         }

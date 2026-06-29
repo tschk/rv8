@@ -20,19 +20,24 @@ use crate::js::bindings::V8ContextData;
 #[cfg(feature = "rv8-v8")]
 use crate::js::JsEngine;
 
+#[cfg(not(feature = "servo-render"))]
 pub mod dom;
 #[cfg(feature = "servo-render")]
 mod embedder_polyfills;
 #[cfg(not(feature = "servo-render"))]
 mod paint;
+#[cfg(not(feature = "servo-render"))]
 pub mod parser;
 #[cfg(feature = "servo-render")]
 mod servo_renderer;
 #[cfg(feature = "servo-render")]
 pub mod viewport;
+#[cfg(not(feature = "servo-render"))]
 pub mod web_apis;
 
+#[cfg(not(feature = "servo-render"))]
 use self::dom::{DomEvent, DomTree};
+#[cfg(not(feature = "servo-render"))]
 use self::web_apis::{ConsoleApi, StorageApi, TimerManager};
 
 /// Servo embedding configuration
@@ -77,13 +82,13 @@ pub struct ServoEmbedder {
     pub js_engine: Arc<Mutex<JsEngine>>,
     /// DOM Tree
     dom_tree: Arc<RwLock<DomTree>>,
-    /// Console API
+    #[allow(dead_code)]
     console_api: Arc<RwLock<ConsoleApi>>,
     /// Timer Manager
     timer_manager: Arc<RwLock<TimerManager>>,
-    /// Local Storage
+    #[allow(dead_code)]
     local_storage: Arc<RwLock<StorageApi>>,
-    /// Session Storage
+    #[allow(dead_code)]
     session_storage: Arc<RwLock<StorageApi>>,
     /// Current document URL
     current_url: String,
@@ -93,6 +98,7 @@ pub struct ServoEmbedder {
     loading: bool,
     /// Load progress (0-100)
     load_progress: u8,
+    #[allow(dead_code)]
     frame_generation: u64,
     #[cfg(feature = "servo-render")]
     servo: Option<servo_renderer::ServoRenderer>,

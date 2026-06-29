@@ -50,7 +50,7 @@ pub struct Tab {
     /// IPC client for renderer process
     renderer_client: RendererClient,
 
-    /// Network manager reference
+    #[allow(dead_code)]
     network: Arc<NetworkManager>,
 
     /// Latest render frame

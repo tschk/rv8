@@ -310,9 +310,7 @@ impl DomTree {
     }
 
     fn find_element_tag(&self, start: NodeId, tag: &str) -> Option<NodeId> {
-        let Some(node) = self.nodes.get(&start) else {
-            return None;
-        };
+        let node = self.nodes.get(&start)?;
         if node.tag_name.as_deref() == Some(tag) {
             return Some(start);
         }

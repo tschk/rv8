@@ -84,64 +84,13 @@ impl RendererProcess {
                 self.navigate(&self.current_url.clone()).await;
             }
             RendererMessage::Stop => {
-                // TODO: Stop loading
                 debug!("Stop loading requested");
-            }
-            RendererMessage::GoBack => {
-                // TODO: History navigation
-                debug!("Go back requested");
-            }
-            RendererMessage::GoForward => {
-                // TODO: History navigation
-                debug!("Go forward requested");
             }
             RendererMessage::ExecuteScript {
                 script,
                 callback_id,
             } => {
                 self.execute_script(&script, callback_id).await;
-            }
-            RendererMessage::Resize { width, height } => {
-                self.embedder.resize(width, height);
-            }
-            RendererMessage::MouseEvent {
-                event_type,
-                x,
-                y,
-                button: _,
-            } => {
-                use crate::ipc::MouseEventType;
-                match event_type {
-                    MouseEventType::Move => self.embedder.handle_mouse_move(x, y).await,
-                    MouseEventType::Click => {
-                        self.embedder
-                            .handle_mouse_click(x, y, crate::servo_embed::MouseButton::Left)
-                            .await;
-                    }
-                    _ => {}
-                }
-            }
-            RendererMessage::KeyEvent {
-                event_type: _,
-                key,
-                modifiers: _,
-            } => {
-                self.embedder.handle_key(&key, true).await;
-            }
-            RendererMessage::Scroll { delta_x, delta_y } => {
-                self.embedder.handle_scroll(delta_x, delta_y);
-            }
-            RendererMessage::Focus { focused } => {
-                self.embedder.handle_focus(focused);
-            }
-            RendererMessage::Visibility { visible: _ } => {
-                // TODO: Handle visibility
-            }
-            RendererMessage::JsDialogResponse {
-                accepted: _,
-                response: _,
-            } => {
-                // TODO: Handle dialog response
             }
             RendererMessage::Shutdown => {
                 self.shutting_down = true;

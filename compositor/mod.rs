@@ -202,9 +202,7 @@ impl GpuProcess {
 
     pub async fn run(&self) {
         info!("GPU process running on channel {}", self.channel_id);
-        loop {
-            tokio::time::sleep(FRAME_INTERVAL).await;
-        }
+        std::future::pending::<()>().await;
     }
 }
 

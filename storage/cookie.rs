@@ -36,7 +36,7 @@ pub struct Cookie {
 }
 
 impl Cookie {
-    pub fn key(&self) -> String {
+    fn key(&self) -> String {
         format!("{}|{}|{}", self.domain, self.path, self.name)
     }
 }
@@ -47,70 +47,104 @@ pub struct CookieJarSnapshot {
     pub cookies: Vec<Cookie>,
 }
 
+/// Sled-backed cookie jar. Ephemeral mode uses in-memory HashMap.
+///
+/// ponytail: single storage backend —
+///   sled provides both persistence and in-memory caching.
+///   No separate HashMap cache layer needed.
 #[derive(Clone)]
 pub struct CookieJar {
-    tree: Option<Tree>,
-    cache: Arc<RwLock<HashMap<String, Cookie>>>,
+    inner: Arc<CookieJarInner>,
+}
+
+enum CookieJarInner {
+    Persistent { tree: Tree },
+    Ephemeral { cache: RwLock<HashMap<String, Cookie>> },
 }
 
 impl CookieJar {
     pub fn open(tree: Tree) -> Result<Self, StorageError> {
-        let mut cookies = HashMap::new();
-        for item in tree.iter() {
-            let (_, value) = item?;
-            let cookie: Cookie = serde_json::from_slice(&value)?;
-            cookies.insert(cookie.key(), cookie);
-        }
         Ok(Self {
-            tree: Some(tree),
-            cache: Arc::new(RwLock::new(cookies)),
+            inner: Arc::new(CookieJarInner::Persistent { tree }),
         })
     }
 
     pub fn ephemeral() -> Self {
         Self {
-            tree: None,
-            cache: Arc::new(RwLock::new(HashMap::new())),
+            inner: Arc::new(CookieJarInner::Ephemeral {
+                cache: RwLock::new(HashMap::new()),
+            }),
         }
     }
 
     pub fn insert(&self, cookie: Cookie) -> Result<(), StorageError> {
-        if let Some(tree) = &self.tree {
-            let key = cookie.key();
-            tree.insert(key.as_bytes(), serde_json::to_vec(&cookie)?)?;
-            tree.flush()?;
+        match &*self.inner {
+            CookieJarInner::Persistent { tree } => {
+                let key = cookie.key();
+                tree.insert(key.as_bytes(), serde_json::to_vec(&cookie)?)?;
+                tree.flush()?;
+            }
+            CookieJarInner::Ephemeral { cache } => {
+                cache.write().insert(cookie.key(), cookie);
+            }
         }
-        let mut cache = self.cache.write();
-        cache.insert(cookie.key(), cookie);
         Ok(())
     }
 
     pub fn remove(&self, domain: &str, path: &str, name: &str) -> Result<bool, StorageError> {
         let key = format!("{domain}|{path}|{name}");
-        if let Some(tree) = &self.tree {
-            tree.remove(key.as_bytes())?;
-            tree.flush()?;
+        match &*self.inner {
+            CookieJarInner::Persistent { tree } => {
+                let existed = tree.remove(key.as_bytes())?.is_some();
+                tree.flush()?;
+                Ok(existed)
+            }
+            CookieJarInner::Ephemeral { cache } => Ok(cache.write().remove(&key).is_some()),
         }
-        let mut cache = self.cache.write();
-        Ok(cache.remove(&key).is_some())
     }
 
     pub fn get(&self, domain: &str, path: &str, name: &str) -> Option<Cookie> {
         let key = format!("{domain}|{path}|{name}");
-        self.cache.read().get(&key).cloned()
+        match &*self.inner {
+            CookieJarInner::Persistent { tree } => tree
+                .get(key.as_bytes())
+                .ok()
+                .flatten()
+                .and_then(|v| serde_json::from_slice::<Cookie>(&v).ok()),
+            CookieJarInner::Ephemeral { cache } => cache.read().get(&key).cloned(),
+        }
     }
 
     pub fn cookies_for_domain(&self, domain: &str) -> Vec<Cookie> {
-        self.cache
-            .read()
-            .values()
-            .filter(|c| domain_matches(&c.domain, domain))
-            .cloned()
-            .collect()
+        match &*self.inner {
+            CookieJarInner::Persistent { tree } => tree
+                .iter()
+                .filter_map(|item| {
+                    let (_, value) = item.ok()?;
+                    serde_json::from_slice::<Cookie>(&value).ok()
+                })
+                .filter(|c| domain_matches(&c.domain, domain))
+                .collect(),
+            CookieJarInner::Ephemeral { cache } => cache
+                .read()
+                .values()
+                .filter(|c| domain_matches(&c.domain, domain))
+                .cloned()
+                .collect(),
+        }
     }
 
     pub fn all(&self) -> Vec<Cookie> {
-        self.cache.read().values().cloned().collect()
+        match &*self.inner {
+            CookieJarInner::Persistent { tree } => tree
+                .iter()
+                .filter_map(|item| {
+                    let (_, value) = item.ok()?;
+                    serde_json::from_slice::<Cookie>(&value).ok()
+                })
+                .collect(),
+            CookieJarInner::Ephemeral { cache } => cache.read().values().cloned().collect(),
+        }
     }
 
     pub fn snapshot(&self) -> CookieJarSnapshot {
@@ -121,27 +155,28 @@ impl CookieJar {
     }
 
     pub fn replace_all(&self, snapshot: CookieJarSnapshot) -> Result<(), StorageError> {
-        if let Some(tree) = &self.tree {
-            let mut batch = sled::Batch::default();
-            for item in tree.iter() {
-                let (key, _) = item?;
-                batch.remove(key);
+        match &*self.inner {
+            CookieJarInner::Persistent { tree } => {
+                let mut batch = sled::Batch::default();
+                for item in tree.iter() {
+                    let (key, _) = item?;
+                    batch.remove(key);
+                }
+                for cookie in &snapshot.cookies {
+                    batch.insert(cookie.key().as_bytes(), serde_json::to_vec(cookie)?);
+                }
+                tree.apply_batch(batch)?;
+                tree.flush()?;
             }
-            for cookie in &snapshot.cookies {
-                batch.insert(cookie.key().as_bytes(), serde_json::to_vec(cookie)?);
+            CookieJarInner::Ephemeral { cache } => {
+                *cache.write() = snapshot
+                    .cookies
+                    .into_iter()
+                    .map(|c| (c.key(), c))
+                    .collect();
             }
-            tree.apply_batch(batch)?;
-            tree.flush()?;
         }
-        *self.cache.write() = snapshot.cookies.into_iter().map(|c| (c.key(), c)).collect();
         Ok(())
-    }
-
-    pub fn jar_ref(&self) -> String {
-        match &self.tree {
-            Some(_) => format!("sled://{COOKIE_TREE}"),
-            None => "memory://ephemeral".to_string(),
-        }
     }
 }
 
@@ -189,7 +224,7 @@ mod tests {
     }
 
     #[test]
-    fn replace_all_clears_cache() {
+    fn replace_all_clears() {
         let jar = CookieJar::open(temp_tree()).expect("jar");
         jar.insert(Cookie {
             name: "a".into(),

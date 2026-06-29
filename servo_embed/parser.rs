@@ -105,7 +105,7 @@ pub fn parse_html(html: &str, dom: &mut DomTree) {
     let builder = DomBuilder::new(dom);
     let tokenizer = Tokenizer::new(builder, TokenizerOpts::default());
 
-    let mut queue = BufferQueue::default();
+    let queue = BufferQueue::default();
     queue.push_back(html.into());
 
     let _ = tokenizer.feed(&queue);

@@ -71,6 +71,7 @@ pub fn paint_document_frame(frame: &mut RenderFrame, dom: &DomTree, ctx: &PaintC
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn paint_subtree(
     frame: &mut RenderFrame,
     dom: &DomTree,
@@ -169,6 +170,7 @@ fn element_style(tag: &str) -> ([u8; 4], i32, i32) {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_wrapped_text(
     frame: &mut RenderFrame,
     x: i32,
