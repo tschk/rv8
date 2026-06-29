@@ -416,14 +416,10 @@ fn node_name_getter(
     let Some(node_id) = get_number_property(scope, args.this(), NODE_ID_KEY) else {
         return;
     };
-    let name = {
-        let dom_tree = get_context_data(scope).dom_tree.read();
-        dom_tree
-            .get_node(node_id)
-            .map(|node| node.tag_name.clone().unwrap_or_else(|| "#text".to_string()))
-    };
-    if let Some(name) = name {
-        if let Some(v8_str) = v8::String::new(scope, &name) {
+    let dom_tree = get_context_data(scope).dom_tree.read();
+    if let Some(node) = dom_tree.get_node(node_id) {
+        let name = node.tag_name.as_deref().unwrap_or("#text");
+        if let Some(v8_str) = v8::String::new(scope, name) {
             rv.set(v8_str.into());
         }
     }
