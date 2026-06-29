@@ -38,8 +38,7 @@ pub struct ProcessManager {
 
 /// Wrapper for child process
 struct ChildProcess {
-    #[allow(dead_code)]
-    child: Child,
+    _child: Child,
     channel_id: String,
 }
 
@@ -187,7 +186,7 @@ impl ProcessManager {
             renderers.insert(
                 tab_id,
                 ChildProcess {
-                    child,
+                    _child: child,
                     channel_id: server_name.clone(),
                 },
             );
@@ -281,7 +280,7 @@ impl ProcessManager {
         let mut renderers = self.renderers.lock().await;
         if let Some(mut process) = renderers.remove(&tab_id) {
             info!("Terminating renderer for tab {}", tab_id.0);
-            let _ = process.child.kill();
+            let _ = process._child.kill();
             self.ipc_server.close_channel(&process.channel_id).await;
         }
     }
@@ -319,7 +318,7 @@ impl ProcessManager {
             .map_err(|e| format!("Failed to spawn GPU process: {}", e))?;
 
         *gpu = Some(ChildProcess {
-            child,
+            _child: child,
             channel_id: channel_id.to_string(),
         });
 
@@ -359,7 +358,7 @@ impl ProcessManager {
             .map_err(|e| format!("Failed to spawn network process: {}", e))?;
 
         *network = Some(ChildProcess {
-            child,
+            _child: child,
             channel_id: channel_id.to_string(),
         });
 
@@ -374,19 +373,19 @@ impl ProcessManager {
         let mut renderers = self.renderers.lock().await;
         for (tab_id, mut process) in renderers.drain() {
             debug!("Terminating renderer for tab {}", tab_id.0);
-            let _ = process.child.kill();
+            let _ = process._child.kill();
         }
 
         // Terminate GPU process
         if let Some(mut process) = self.gpu_process.lock().await.take() {
             debug!("Terminating GPU process");
-            let _ = process.child.kill();
+            let _ = process._child.kill();
         }
 
         // Terminate network process
         if let Some(mut process) = self.network_process.lock().await.take() {
             debug!("Terminating network process");
-            let _ = process.child.kill();
+            let _ = process._child.kill();
         }
     }
 }
