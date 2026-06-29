@@ -264,7 +264,20 @@ impl ServoRenderer {
                 return Err("JavaScript evaluation timed out".to_string());
             }
             self.servo.spin_event_loop();
-            thread::sleep(Duration::from_millis(1));
+            match rx.recv_timeout(Duration::from_millis(1)) {
+                Ok(result) => {
+                    return match result {
+                        Ok(value) => Ok(js_value_to_string(&value)),
+                        Err(err) => Err(format!("JavaScript evaluation failed: {err:?}")),
+                    };
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    // Timeout is expected, loop continues
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    return Err("JavaScript evaluation channel disconnected".to_string());
+                }
+            }
         }
     }
 
@@ -290,7 +303,20 @@ impl ServoRenderer {
                 return Err("JavaScript evaluation timed out".to_string());
             }
             self.servo.spin_event_loop();
-            thread::sleep(Duration::from_millis(1));
+            match rx.recv_timeout(Duration::from_millis(1)) {
+                Ok(result) => {
+                    return match result {
+                        Ok(value) => Ok(js_value_from_embedder(&value)),
+                        Err(err) => Err(format!("JavaScript evaluation failed: {err:?}")),
+                    };
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    // Timeout is expected, loop continues
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    return Err("JavaScript evaluation channel disconnected".to_string());
+                }
+            }
         }
     }
 
