@@ -2,11 +2,83 @@
 //!
 //! Defines all message types for inter-process communication.
 
-use rv8_browser_optimizations::runtime::{SurfaceDescriptor, SurfaceId, SurfaceSize};
 use serde::{Deserialize, Serialize};
 
 use crate::js::JsValue;
 use crate::renderer::RenderFrame;
+
+// ── Inlined surface types (formerly from rv8_browser_optimizations::runtime) ──
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PlatformTier {
+    Desktop,
+    ArmLinux,
+    Mobile,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum SurfaceRotation {
+    #[default]
+    Deg0,
+    Deg90,
+    Deg180,
+    Deg270,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct SurfaceSize {
+    pub width: u32,
+    pub height: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct SurfaceId(pub u64);
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SurfaceDescriptor {
+    pub id: SurfaceId,
+    pub size: SurfaceSize,
+    pub scale_factor: f32,
+    pub tier: PlatformTier,
+    pub rotation: SurfaceRotation,
+    pub safe_area: SafeAreaInsets,
+    pub touch_enabled: bool,
+    pub keyboard_enabled: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct SafeAreaInsets {
+    pub top: u32,
+    pub right: u32,
+    pub bottom: u32,
+    pub left: u32,
+}
+
+impl SurfaceDescriptor {
+    pub fn new(id: u64, width: u32, height: u32, tier: PlatformTier) -> Self {
+        Self {
+            id: SurfaceId(id),
+            size: SurfaceSize { width, height },
+            scale_factor: 1.0,
+            tier,
+            rotation: SurfaceRotation::Deg0,
+            safe_area: SafeAreaInsets::default(),
+            touch_enabled: matches!(tier, PlatformTier::Mobile | PlatformTier::ArmLinux),
+            keyboard_enabled: true,
+        }
+    }
+}
+
+impl Default for SurfaceDescriptor {
+    fn default() -> Self {
+        Self::new(0, 1920, 1080, PlatformTier::Desktop)
+    }
+}
+
+// ── IPC message types ──
+
+use ipc_channel::ipc::IpcSender;
 
 /// Messages from renderer to browser process
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -25,16 +97,6 @@ pub enum BrowserMessage {
     Stop { tab_id: u64 },
     /// Load progress update (0-100)
     LoadProgress { tab_id: u64, progress: u8 },
-    /// Favicon updated
-    FaviconChanged { tab_id: u64, url: Option<String> },
-    /// Security state changed
-    SecurityChanged { tab_id: u64, secure: bool },
-    /// Console message from JavaScript
-    ConsoleMessage {
-        tab_id: u64,
-        level: String,
-        message: String,
-    },
     /// Result of a browser-requested script evaluation
     ScriptResult {
         tab_id: u64,
@@ -43,19 +105,7 @@ pub enum BrowserMessage {
     },
     /// Request to close tab
     CloseTab { tab_id: u64 },
-    /// Request to open new tab
-    OpenNewTab { url: Option<String> },
-    /// JavaScript dialog (alert, confirm, prompt)
-    JsDialog {
-        tab_id: u64,
-        dialog_type: JsDialogType,
-        message: String,
-    },
-    /// Crash report
-    RendererCrashed { tab_id: u64, reason: String },
 }
-
-use ipc_channel::ipc::IpcSender;
 
 /// Messages from browser to renderer process
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -70,38 +120,8 @@ pub enum RendererMessage {
     Reload,
     /// Stop loading
     Stop,
-    /// Go back in history
-    GoBack,
-    /// Go forward in history
-    GoForward,
     /// Execute JavaScript
     ExecuteScript { script: String, callback_id: u64 },
-    /// Resize viewport
-    Resize { width: u32, height: u32 },
-    /// Mouse event
-    MouseEvent {
-        event_type: MouseEventType,
-        x: f32,
-        y: f32,
-        button: u8,
-    },
-    /// Keyboard event
-    KeyEvent {
-        event_type: KeyEventType,
-        key: String,
-        modifiers: u8,
-    },
-    /// Scroll event
-    Scroll { delta_x: f32, delta_y: f32 },
-    /// Focus changed
-    Focus { focused: bool },
-    /// Visibility changed
-    Visibility { visible: bool },
-    /// Response to JS dialog
-    JsDialogResponse {
-        accepted: bool,
-        response: Option<String>,
-    },
     /// Shutdown renderer
     Shutdown,
 }
@@ -109,19 +129,6 @@ pub enum RendererMessage {
 /// Messages to/from GPU process
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum GpuMessage {
-    /// Create surface for tab
-    CreateSurface {
-        tab_id: u64,
-        surface: SurfaceDescriptor,
-    },
-    /// Destroy surface
-    DestroySurface { tab_id: u64, surface_id: SurfaceId },
-    /// Resize surface
-    ResizeSurface {
-        tab_id: u64,
-        surface_id: SurfaceId,
-        size: SurfaceSize,
-    },
     /// Submit frame for compositing
     SubmitFrame {
         tab_id: u64,
@@ -130,12 +137,6 @@ pub enum GpuMessage {
     },
     /// Present composited frame
     Present { tab_id: u64, surface_id: SurfaceId },
-    /// Update display list
-    UpdateDisplayList { tab_id: u64, data: Vec<u8> },
-    /// GPU context lost
-    ContextLost,
-    /// GPU context restored
-    ContextRestored,
 }
 
 /// Messages to/from network process
@@ -149,8 +150,6 @@ pub enum NetworkMessage {
         headers: Vec<(String, String)>,
         body: Option<Vec<u8>>,
     },
-    /// Cancel fetch
-    CancelFetch { request_id: u64 },
     /// Response headers received
     ResponseHeaders {
         request_id: u64,
@@ -165,45 +164,4 @@ pub enum NetworkMessage {
     },
     /// Response error
     ResponseError { request_id: u64, error: String },
-    /// Preconnect to host
-    Preconnect { url: String },
-    /// DNS prefetch
-    DnsPrefetch { hostname: String },
-    /// Set cookie
-    SetCookie { url: String, cookie: String },
-    /// Get cookies for URL
-    GetCookies { url: String },
-    /// Cookies response
-    CookiesResponse { cookies: Vec<String> },
-    /// Clear browsing data
-    ClearData { types: u32 },
-}
-
-/// JavaScript dialog types
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub enum JsDialogType {
-    Alert,
-    Confirm,
-    Prompt,
-    BeforeUnload,
-}
-
-/// Mouse event types
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub enum MouseEventType {
-    Move,
-    Down,
-    Up,
-    Click,
-    DoubleClick,
-    Enter,
-    Leave,
-}
-
-/// Keyboard event types
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub enum KeyEventType {
-    Down,
-    Up,
-    Press,
 }
