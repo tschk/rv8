@@ -20,6 +20,8 @@ pub struct BrowserSessionSnapshot {
     pub tabs: Vec<SessionTab>,
     pub active_tab_id: Option<u64>,
     pub updated_at: i64,
+    #[serde(skip)]
+    pub tab_indices: std::collections::HashMap<u64, usize>,
 }
 
 impl Default for BrowserSessionSnapshot {
@@ -30,6 +32,7 @@ impl Default for BrowserSessionSnapshot {
             tabs: Vec::new(),
             active_tab_id: None,
             updated_at: 0,
+            tab_indices: std::collections::HashMap::new(),
         }
     }
 }
@@ -42,7 +45,7 @@ pub struct SessionStore {
 impl SessionStore {
     pub fn open(tree: Tree, profile_id: impl Into<String>) -> Result<Self, StorageError> {
         let profile_id = profile_id.into();
-        let snapshot = tree
+        let mut snapshot = tree
             .get(DEFAULT_SESSION_KEY)?
             .map(|bytes| serde_json::from_slice::<BrowserSessionSnapshot>(&bytes))
             .transpose()?
@@ -50,6 +53,12 @@ impl SessionStore {
                 profile_id,
                 ..Default::default()
             });
+
+        // Rebuild tab_indices map for O(1) lookups
+        for (idx, tab) in snapshot.tabs.iter().enumerate() {
+            snapshot.tab_indices.insert(tab.tab_id, idx);
+        }
+
         Ok(Self {
             tree: Some(tree),
             snapshot: parking_lot::RwLock::new(snapshot),
@@ -70,7 +79,13 @@ impl SessionStore {
         self.snapshot.read().clone()
     }
 
-    pub fn replace(&self, snapshot: BrowserSessionSnapshot) -> Result<(), StorageError> {
+    pub fn replace(&self, mut snapshot: BrowserSessionSnapshot) -> Result<(), StorageError> {
+        // Ensure indices are correct in the provided snapshot
+        snapshot.tab_indices.clear();
+        for (idx, tab) in snapshot.tabs.iter().enumerate() {
+            snapshot.tab_indices.insert(tab.tab_id, idx);
+        }
+
         if let Some(tree) = &self.tree {
             tree.insert(DEFAULT_SESSION_KEY, serde_json::to_vec(&snapshot)?)?;
             tree.flush()?;
@@ -81,9 +96,11 @@ impl SessionStore {
 
     pub fn upsert_tab(&self, tab: SessionTab) -> Result<(), StorageError> {
         let mut snap = self.snapshot.write();
-        if let Some(existing) = snap.tabs.iter_mut().find(|t| t.tab_id == tab.tab_id) {
-            *existing = tab;
+        if let Some(&idx) = snap.tab_indices.get(&tab.tab_id) {
+            snap.tabs[idx] = tab;
         } else {
+            let idx = snap.tabs.len();
+            snap.tab_indices.insert(tab.tab_id, idx);
             snap.tabs.push(tab);
         }
         snap.updated_at = now_unix();
@@ -92,7 +109,14 @@ impl SessionStore {
 
     pub fn remove_tab(&self, tab_id: u64) -> Result<(), StorageError> {
         let mut snap = self.snapshot.write();
-        snap.tabs.retain(|t| t.tab_id != tab_id);
+        if let Some(idx) = snap.tab_indices.remove(&tab_id) {
+            snap.tabs.remove(idx);
+            // Rebuild indices for elements that shifted
+            for i in idx..snap.tabs.len() {
+                let shifted_tab_id = snap.tabs[i].tab_id;
+                snap.tab_indices.insert(shifted_tab_id, i);
+            }
+        }
         if snap.active_tab_id == Some(tab_id) {
             snap.active_tab_id = snap.tabs.first().map(|t| t.tab_id);
         }
