@@ -195,25 +195,47 @@ impl DriverCatalog {
         &self,
         source_uri: &str,
     ) -> Result<DriverManifest, DriverCatalogError> {
-        let manifest = if let Some(path) = source_uri.strip_prefix("file://") {
-            let data = std::fs::read_to_string(path).map_err(|e| {
-                DriverCatalogError::Driver(DriverError::Serialization(e.to_string()))
-            })?;
-            serde_json::from_str(&data)?
-        } else if source_uri.starts_with("http://") || source_uri.starts_with("https://") {
-            let body = reqwest::blocking::get(source_uri)
-                .map_err(|e| DriverCatalogError::Driver(DriverError::Serialization(e.to_string())))?
-                .error_for_status()
-                .map_err(|e| DriverCatalogError::Driver(DriverError::Serialization(e.to_string())))?
-                .text()
-                .map_err(|e| {
+        let url = url::Url::parse(source_uri).map_err(|e| {
+            DriverCatalogError::Driver(DriverError::Serialization(format!("invalid URI: {}", e)))
+        })?;
+
+        let manifest = match url.scheme() {
+            "file" => {
+                if !cfg!(test) {
+                    return Err(DriverCatalogError::Driver(DriverError::Serialization(
+                        "file:// scheme is not allowed in production".to_string(),
+                    )));
+                }
+                let path = url.to_file_path().map_err(|_| {
+                    DriverCatalogError::Driver(DriverError::Serialization(
+                        "invalid file path".to_string(),
+                    ))
+                })?;
+                let data = std::fs::read_to_string(path).map_err(|e| {
                     DriverCatalogError::Driver(DriverError::Serialization(e.to_string()))
                 })?;
-            serde_json::from_str(&body)?
-        } else {
-            return Err(DriverCatalogError::Driver(DriverError::Serialization(
-                format!("unsupported package source URI: {}", source_uri),
-            )));
+                serde_json::from_str(&data)?
+            }
+            "https" => {
+                let body = reqwest::blocking::get(url.as_str())
+                    .map_err(|e| {
+                        DriverCatalogError::Driver(DriverError::Serialization(e.to_string()))
+                    })?
+                    .error_for_status()
+                    .map_err(|e| {
+                        DriverCatalogError::Driver(DriverError::Serialization(e.to_string()))
+                    })?
+                    .text()
+                    .map_err(|e| {
+                        DriverCatalogError::Driver(DriverError::Serialization(e.to_string()))
+                    })?;
+                serde_json::from_str(&body)?
+            }
+            _ => {
+                return Err(DriverCatalogError::Driver(DriverError::Serialization(
+                    format!("unsupported package source URI scheme: {}", url.scheme()),
+                )));
+            }
         };
 
         Ok(manifest)
