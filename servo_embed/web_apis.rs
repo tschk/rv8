@@ -153,9 +153,7 @@ impl TimerManager {
 
     /// Clear a timer (clearTimeout/clearInterval)
     pub fn clear_timer(&mut self, id: TimerId) {
-        if let Some(timer) = self.timers.get_mut(&id) {
-            timer.cancelled = true;
-        }
+        self.timers.remove(&id);
     }
 
     /// Get timers that are ready to fire
@@ -344,11 +342,12 @@ mod tests {
         let mut timers = TimerManager::new();
 
         let timer_id = timers.set_timeout(44, 10);
+        assert_eq!(timers.timers.len(), 1);
+
         timers.clear_timer(timer_id);
+        assert!(timers.timers.is_empty());
 
         std::thread::sleep(Duration::from_millis(15));
-
-        // Timer was cleared, should not fire
         assert_eq!(timers.poll_ready_timers().len(), 0);
     }
 
