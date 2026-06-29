@@ -254,17 +254,23 @@ impl ServoRenderer {
         });
         let deadline = Instant::now() + Duration::from_secs(30);
         loop {
-            if let Ok(result) = rx.try_recv() {
-                return match result {
-                    Ok(value) => Ok(js_value_to_string(&value)),
-                    Err(err) => Err(format!("JavaScript evaluation failed: {err:?}")),
-                };
-            }
-            if Instant::now() >= deadline {
-                return Err("JavaScript evaluation timed out".to_string());
-            }
             self.servo.spin_event_loop();
-            thread::sleep(Duration::from_millis(1));
+            match rx.recv_timeout(Duration::from_millis(1)) {
+                Ok(result) => {
+                    return match result {
+                        Ok(value) => Ok(js_value_to_string(&value)),
+                        Err(err) => Err(format!("JavaScript evaluation failed: {err:?}")),
+                    };
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    if Instant::now() >= deadline {
+                        return Err("JavaScript evaluation timed out".to_string());
+                    }
+                }
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    return Err("JavaScript evaluation failed: channel disconnected".to_string());
+                }
+            }
         }
     }
 
@@ -280,17 +286,23 @@ impl ServoRenderer {
         });
         let deadline = Instant::now() + Duration::from_secs(30);
         loop {
-            if let Ok(result) = rx.try_recv() {
-                return match result {
-                    Ok(value) => Ok(js_value_from_embedder(&value)),
-                    Err(err) => Err(format!("JavaScript evaluation failed: {err:?}")),
-                };
-            }
-            if Instant::now() >= deadline {
-                return Err("JavaScript evaluation timed out".to_string());
-            }
             self.servo.spin_event_loop();
-            thread::sleep(Duration::from_millis(1));
+            match rx.recv_timeout(Duration::from_millis(1)) {
+                Ok(result) => {
+                    return match result {
+                        Ok(value) => Ok(js_value_from_embedder(&value)),
+                        Err(err) => Err(format!("JavaScript evaluation failed: {err:?}")),
+                    };
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    if Instant::now() >= deadline {
+                        return Err("JavaScript evaluation timed out".to_string());
+                    }
+                }
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    return Err("JavaScript evaluation failed: channel disconnected".to_string());
+                }
+            }
         }
     }
 
