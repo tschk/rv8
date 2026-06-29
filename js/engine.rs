@@ -345,6 +345,45 @@ mod tests {
     }
 
     #[test]
+    fn test_engine_new_isolates_state() {
+        let mut engine1 = JsEngine::new().unwrap();
+        let mut engine2 = JsEngine::new().unwrap();
+
+        engine1.execute("var isolated_var = 42;").unwrap();
+
+        let result1 = engine1.execute_to_string("isolated_var").unwrap();
+        assert_eq!(result1, "42");
+
+        let result2 = engine2.execute_to_string("typeof isolated_var");
+        assert_eq!(result2.unwrap(), "undefined");
+    }
+
+    #[test]
+    fn test_engine_drop_and_recreate() {
+        {
+            let mut engine = JsEngine::new().unwrap();
+            engine.execute("var test = 1;").unwrap();
+        } // engine is dropped here
+
+        // Recreate to ensure dropping didn't break V8 global state
+        let mut new_engine = JsEngine::new().unwrap();
+        let result = new_engine.execute_to_string("typeof test");
+        assert_eq!(result.unwrap(), "undefined");
+    }
+
+    #[test]
+    fn test_engine_new_context_valid() {
+        let mut engine = JsEngine::new().unwrap();
+
+        // Ensure the context has a valid global object by checking 'this' or 'Math'
+        let result = engine.execute_to_string("typeof Math").unwrap();
+        assert_eq!(result, "object");
+
+        let this_type = engine.execute_to_string("typeof this").unwrap();
+        assert_eq!(this_type, "object");
+    }
+
+    #[test]
     fn test_engine_default() {
         let _engine = JsEngine::default();
     }
