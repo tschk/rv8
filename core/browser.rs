@@ -12,7 +12,6 @@ use crate::networking::NetworkManager;
 use crate::storage::StorageManager;
 
 /// Main browser instance
-#[allow(dead_code)]
 pub struct Browser {
     /// Browser configuration
     config: BrowserConfig,
