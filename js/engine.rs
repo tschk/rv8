@@ -396,23 +396,43 @@ mod tests {
 
         engine
             .execute(
-                "var microtask_run = false;
-             Promise.resolve().then(() => { microtask_run = true; });",
+                "var order = [];
+                 Promise.resolve().then(() => order.push(1));
+                 Promise.resolve().then(() => order.push(2));
+                 order.push(0);",
             )
             .unwrap();
 
-        let before_checkpoint = engine.execute_to_string("microtask_run").unwrap();
+        let before_checkpoint = engine.execute_to_string("order.join(',')").unwrap();
         assert_eq!(
-            before_checkpoint, "false",
-            "Microtask should not have run yet"
+            before_checkpoint, "0",
+            "Microtasks should not run before checkpoint"
         );
 
         engine.perform_microtask_checkpoint();
 
-        let after_checkpoint = engine.execute_to_string("microtask_run").unwrap();
+        let after_checkpoint = engine.execute_to_string("order.join(',')").unwrap();
         assert_eq!(
-            after_checkpoint, "true",
-            "Microtask should have run after checkpoint"
+            after_checkpoint, "0,1,2",
+            "Microtasks should run in order after checkpoint"
+        );
+
+        engine
+            .execute("Promise.resolve().then(() => order.push(3));")
+            .unwrap();
+
+        let before_second_checkpoint = engine.execute_to_string("order.join(',')").unwrap();
+        assert_eq!(
+            before_second_checkpoint, "0,1,2",
+            "New microtask should not run before second checkpoint"
+        );
+
+        engine.perform_microtask_checkpoint();
+
+        let after_second_checkpoint = engine.execute_to_string("order.join(',')").unwrap();
+        assert_eq!(
+            after_second_checkpoint, "0,1,2,3",
+            "New microtask should run after second checkpoint"
         );
     }
 
