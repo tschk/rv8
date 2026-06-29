@@ -9,7 +9,6 @@ use super::{BrowserConfig, ProcessManager, Tab, TabId};
 use crate::compositor::Compositor;
 use crate::ipc::BrowserMessage;
 use crate::networking::NetworkManager;
-use crate::optimizations::{OptimizationFlags, PerformanceMonitor};
 use crate::storage::StorageManager;
 
 /// Main browser instance
@@ -38,12 +37,6 @@ pub struct Browser {
 
     /// Storage manager
     storage: Arc<StorageManager>,
-
-    /// Performance monitor
-    perf_monitor: Arc<PerformanceMonitor>,
-
-    /// Optimization flags
-    opt_flags: OptimizationFlags,
 
     /// Shutdown signal
     shutdown: tokio::sync::broadcast::Sender<()>,
@@ -94,12 +87,6 @@ impl Browser {
         let compositor = Arc::new(compositor);
         info!("Compositor initialized");
 
-        // Performance monitor
-        let perf_monitor = Arc::new(PerformanceMonitor::new());
-
-        // Optimization flags
-        let opt_flags = OptimizationFlags::chrome_like();
-
         let (shutdown_tx, _) = tokio::sync::broadcast::channel(1);
 
         Ok(Browser {
@@ -111,8 +98,6 @@ impl Browser {
             compositor,
             network,
             storage,
-            perf_monitor,
-            opt_flags,
             shutdown: shutdown_tx,
             browser_events: browser_event_rx,
         })
@@ -298,10 +283,7 @@ impl Browser {
                     self.render_frame().await;
                 }
 
-                // Performance sampling (every second)
-                _ = tokio::time::sleep(tokio::time::Duration::from_secs(1)) => {
-                    self.perf_monitor.sample();
-                }
+
             }
         }
 

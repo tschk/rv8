@@ -58,59 +58,20 @@ pub struct BrowserConfig {
     /// Enable multi-process mode (Chrome-like)
     pub multi_process: bool,
 
-    /// Enable GPU compositing
-    pub gpu_compositing: bool,
-
-    /// Enable hardware acceleration
-    pub hardware_acceleration: bool,
-
     /// User data directory for profiles, cache, etc.
     pub user_data_dir: PathBuf,
 
     /// Explicit writable browser data directories for immutable deployments.
     pub data_dirs: BrowserDataDirs,
 
-    /// Maximum number of renderer processes
-    pub max_renderers: usize,
-
-    /// Enable site isolation (one renderer per site)
-    pub site_isolation: bool,
-
     /// Enable sandboxing for renderer processes
     pub sandbox: bool,
-
-    /// Initial window width
-    pub window_width: u32,
-
-    /// Initial window height
-    pub window_height: u32,
-
-    /// Enable DevTools
-    pub devtools_enabled: bool,
-
-    /// DevTools port for remote debugging
-    pub devtools_port: Option<u16>,
 
     /// User agent override
     pub user_agent_override: Option<String>,
 
-    /// Disable web security (for testing only)
-    pub disable_web_security: bool,
-
     /// Incognito mode (no persistent storage)
     pub incognito: bool,
-
-    /// Headless mode (no UI)
-    pub headless: bool,
-
-    /// Enable V8 optimization flags
-    pub v8_flags: Vec<String>,
-
-    /// Maximum cache size in bytes
-    pub cache_size_bytes: usize,
-
-    /// Enable HTTP/3 (QUIC)
-    pub enable_http3: bool,
 }
 
 impl Default for BrowserConfig {
@@ -118,28 +79,11 @@ impl Default for BrowserConfig {
         let data_dirs = BrowserDataDirs::default();
         BrowserConfig {
             multi_process: true,
-            gpu_compositing: true,
-            hardware_acceleration: true,
             user_data_dir: data_dirs.profile_dir.clone(),
             data_dirs,
-            max_renderers: 10,
-            site_isolation: true,
             sandbox: true,
-            window_width: 1280,
-            window_height: 800,
-            devtools_enabled: true,
-            devtools_port: Some(9222),
             user_agent_override: None,
-            disable_web_security: false,
             incognito: false,
-            headless: false,
-            v8_flags: vec![
-                "--turbofan".to_string(),
-                "--max-heap-size=512".to_string(),
-                "--concurrent-marking".to_string(),
-            ],
-            cache_size_bytes: 256 * 1024 * 1024, // 256 MB
-            enable_http3: true,
         }
     }
 }
@@ -150,50 +94,11 @@ impl BrowserConfig {
         let data_dirs = BrowserDataDirs::appliance();
         BrowserConfig {
             multi_process: true,
-            gpu_compositing: true,
-            hardware_acceleration: true,
             user_data_dir: data_dirs.profile_dir.clone(),
             data_dirs,
-            max_renderers: 4,
-            site_isolation: true,
             sandbox: true,
-            window_width: 1280,
-            window_height: 800,
-            devtools_enabled: false,
-            devtools_port: None,
             user_agent_override: None,
-            disable_web_security: false,
             incognito: false,
-            headless: false,
-            v8_flags: vec!["--turbofan".to_string(), "--concurrent-marking".to_string()],
-            cache_size_bytes: 128 * 1024 * 1024,
-            enable_http3: true,
-        }
-    }
-
-    /// Create a development configuration
-    pub fn development() -> Self {
-        let data_dirs = BrowserDataDirs::default();
-        BrowserConfig {
-            devtools_enabled: true,
-            sandbox: false, // Easier debugging
-            user_data_dir: data_dirs.profile_dir.clone(),
-            data_dirs,
-            ..Default::default()
-        }
-    }
-
-    /// Create a headless configuration
-    pub fn headless() -> Self {
-        let data_dirs = BrowserDataDirs::default();
-        BrowserConfig {
-            headless: true,
-            gpu_compositing: false,
-            hardware_acceleration: false,
-            devtools_port: Some(9222),
-            user_data_dir: data_dirs.profile_dir.clone(),
-            data_dirs,
-            ..Default::default()
         }
     }
 
@@ -202,7 +107,6 @@ impl BrowserConfig {
         let data_dirs = BrowserDataDirs::default();
         BrowserConfig {
             incognito: true,
-            cache_size_bytes: 0,
             user_data_dir: data_dirs.profile_dir.clone(),
             data_dirs,
             ..Default::default()
