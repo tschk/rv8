@@ -80,14 +80,19 @@ pub struct ServoEmbedder {
     /// Standalone V8 (software-render builds only; Servo path uses soliloquy_v8)
     #[cfg(feature = "rv8-v8")]
     pub js_engine: Arc<Mutex<JsEngine>>,
-    /// DOM Tree
+    /// Stub DOM tree (software-render path only)
+    #[cfg(not(feature = "servo-render"))]
     dom_tree: Arc<RwLock<DomTree>>,
+    #[cfg(not(feature = "servo-render"))]
     #[allow(dead_code)]
     console_api: Arc<RwLock<ConsoleApi>>,
-    /// Timer Manager
+    /// Timer manager (software-render path only)
+    #[cfg(not(feature = "servo-render"))]
     timer_manager: Arc<RwLock<TimerManager>>,
+    #[cfg(not(feature = "servo-render"))]
     #[allow(dead_code)]
     local_storage: Arc<RwLock<StorageApi>>,
+    #[cfg(not(feature = "servo-render"))]
     #[allow(dead_code)]
     session_storage: Arc<RwLock<StorageApi>>,
     /// Current document URL
@@ -109,10 +114,15 @@ impl ServoEmbedder {
     pub async fn new(config: ServoConfig) -> Result<Self, String> {
         info!("Initializing Servo embedder");
 
+        #[cfg(not(feature = "servo-render"))]
         let dom_tree = Arc::new(RwLock::new(DomTree::new()));
+        #[cfg(not(feature = "servo-render"))]
         let console_api = Arc::new(RwLock::new(ConsoleApi::new()));
+        #[cfg(not(feature = "servo-render"))]
         let timer_manager = Arc::new(RwLock::new(TimerManager::new()));
+        #[cfg(not(feature = "servo-render"))]
         let local_storage = Arc::new(RwLock::new(StorageApi::new(5 * 1024 * 1024)));
+        #[cfg(not(feature = "servo-render"))]
         let session_storage = Arc::new(RwLock::new(StorageApi::new(5 * 1024 * 1024)));
 
         #[cfg(feature = "rv8-v8")]
@@ -140,10 +150,15 @@ impl ServoEmbedder {
             config,
             #[cfg(feature = "rv8-v8")]
             js_engine,
+            #[cfg(not(feature = "servo-render"))]
             dom_tree,
+            #[cfg(not(feature = "servo-render"))]
             console_api,
+            #[cfg(not(feature = "servo-render"))]
             timer_manager,
+            #[cfg(not(feature = "servo-render"))]
             local_storage,
+            #[cfg(not(feature = "servo-render"))]
             session_storage,
             current_url: String::new(),
             title: String::new(),
@@ -307,9 +322,6 @@ impl ServoEmbedder {
     /// Handle mouse event
     pub async fn handle_mouse_move(&mut self, x: f32, y: f32) {
         debug!("Mouse move: ({}, {})", x, y);
-        let target_id = self.dom_tree.read().document_id();
-        let event = DomEvent::mouse("mousemove", target_id, x, y, MouseButton::Left);
-        self.dom_tree.write().record_event(event.clone());
 
         #[cfg(feature = "servo-render")]
         if let Some(ref mut servo) = self.servo {
@@ -318,37 +330,52 @@ impl ServoEmbedder {
             return;
         }
 
-        #[cfg(feature = "rv8-v8")]
+        #[cfg(not(feature = "servo-render"))]
         {
-            let mut engine = self.js_engine.lock().await;
-            engine.dispatch_event(&event);
+            let target_id = self.dom_tree.read().document_id();
+            let event = DomEvent::mouse("mousemove", target_id, x, y, MouseButton::Left);
+            self.dom_tree.write().record_event(event.clone());
+
+            #[cfg(feature = "rv8-v8")]
+            {
+                let mut engine = self.js_engine.lock().await;
+                engine.dispatch_event(&event);
+            }
         }
     }
 
     /// Handle mouse click
     pub async fn handle_mouse_click(&mut self, x: f32, y: f32, button: MouseButton) {
         debug!("Mouse click: ({}, {}) button={:?}", x, y, button);
-        let target_id = self.dom_tree.read().document_id();
-        let event = DomEvent::mouse("click", target_id, x, y, button);
-        self.dom_tree.write().record_event(event.clone());
-        #[cfg(feature = "rv8-v8")]
+
+        #[cfg(not(feature = "servo-render"))]
         {
-            let mut engine = self.js_engine.lock().await;
-            engine.dispatch_event(&event);
+            let target_id = self.dom_tree.read().document_id();
+            let event = DomEvent::mouse("click", target_id, x, y, button);
+            self.dom_tree.write().record_event(event.clone());
+            #[cfg(feature = "rv8-v8")]
+            {
+                let mut engine = self.js_engine.lock().await;
+                engine.dispatch_event(&event);
+            }
         }
     }
 
     /// Handle key event
     pub async fn handle_key(&mut self, key: &str, pressed: bool) {
         debug!("Key event: {} pressed={}", key, pressed);
-        let target_id = self.dom_tree.read().document_id();
-        let event_type = if pressed { "keydown" } else { "keyup" };
-        let event = DomEvent::key(event_type, target_id, key);
-        self.dom_tree.write().record_event(event.clone());
-        #[cfg(feature = "rv8-v8")]
+
+        #[cfg(not(feature = "servo-render"))]
         {
-            let mut engine = self.js_engine.lock().await;
-            engine.dispatch_event(&event);
+            let target_id = self.dom_tree.read().document_id();
+            let event_type = if pressed { "keydown" } else { "keyup" };
+            let event = DomEvent::key(event_type, target_id, key);
+            self.dom_tree.write().record_event(event.clone());
+            #[cfg(feature = "rv8-v8")]
+            {
+                let mut engine = self.js_engine.lock().await;
+                engine.dispatch_event(&event);
+            }
         }
     }
 
@@ -375,6 +402,10 @@ impl ServoEmbedder {
     }
 
     /// Poll and execute ready timers
+    #[cfg(feature = "servo-render")]
+    pub async fn poll_timers(&self) {}
+
+    #[cfg(not(feature = "servo-render"))]
     pub async fn poll_timers(&self) {
         let ready_timers = {
             let mut manager = self.timer_manager.write();
