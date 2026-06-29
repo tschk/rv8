@@ -116,6 +116,11 @@ impl Tab {
 
     /// Go back in history
     pub async fn go_back(&mut self) -> Result<(), String> {
+        #[cfg(feature = "servo-render")]
+        {
+            self.renderer_client.send_go_back()?;
+        }
+        #[cfg(not(feature = "servo-render"))]
         if let Some(url) = self.navigation.go_back() {
             self.url = url.clone();
             self.state = TabState::Loading;
@@ -126,6 +131,11 @@ impl Tab {
 
     /// Go forward in history
     pub async fn go_forward(&mut self) -> Result<(), String> {
+        #[cfg(feature = "servo-render")]
+        {
+            self.renderer_client.send_go_forward()?;
+        }
+        #[cfg(not(feature = "servo-render"))]
         if let Some(url) = self.navigation.go_forward() {
             self.url = url.clone();
             self.state = TabState::Loading;

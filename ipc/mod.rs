@@ -116,6 +116,18 @@ impl RendererClient {
             .map_err(|e| e.to_string())
     }
 
+    pub fn send_go_back(&self) -> Result<(), String> {
+        self.tx
+            .send(RendererMessage::GoBack)
+            .map_err(|e| e.to_string())
+    }
+
+    pub fn send_go_forward(&self) -> Result<(), String> {
+        self.tx
+            .send(RendererMessage::GoForward)
+            .map_err(|e| e.to_string())
+    }
+
     pub fn send_close(&self) -> Result<(), String> {
         self.tx
             .send(RendererMessage::Shutdown)

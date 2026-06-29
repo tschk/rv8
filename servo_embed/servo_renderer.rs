@@ -217,6 +217,22 @@ impl ServoRenderer {
         }
     }
 
+    pub fn go_back(&mut self) {
+        if let Some(webview) = &self.webview {
+            webview.go_back(1);
+            self.frame_ready.store(true, Ordering::Relaxed);
+            self.tick();
+        }
+    }
+
+    pub fn go_forward(&mut self) {
+        if let Some(webview) = &self.webview {
+            webview.go_forward(1);
+            self.frame_ready.store(true, Ordering::Relaxed);
+            self.tick();
+        }
+    }
+
     pub fn handle_mouse_move(&mut self, x: f32, y: f32) {
         use embedder_traits::{InputEvent, MouseMoveEvent, WebViewPoint};
         use servo::DevicePoint;

@@ -86,6 +86,14 @@ impl RendererProcess {
             RendererMessage::Stop => {
                 debug!("Stop loading requested");
             }
+            RendererMessage::GoBack => {
+                debug!("Go back requested");
+                self.embedder.go_back().await;
+            }
+            RendererMessage::GoForward => {
+                debug!("Go forward requested");
+                self.embedder.go_forward().await;
+            }
             RendererMessage::ExecuteScript {
                 script,
                 callback_id,

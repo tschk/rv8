@@ -220,6 +220,20 @@ impl ServoEmbedder {
     }
 
     /// Execute JavaScript in the context of the current document
+    pub async fn go_back(&mut self) {
+        #[cfg(feature = "servo-render")]
+        if let Some(ref mut servo) = self.servo {
+            servo.go_back();
+        }
+    }
+
+    pub async fn go_forward(&mut self) {
+        #[cfg(feature = "servo-render")]
+        if let Some(ref mut servo) = self.servo {
+            servo.go_forward();
+        }
+    }
+
     pub async fn execute_script(&mut self, script: &str) -> Result<String, String> {
         #[cfg(feature = "servo-render")]
         if let Some(ref mut servo) = self.servo {
