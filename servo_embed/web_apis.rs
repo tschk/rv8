@@ -258,3 +258,44 @@ impl Default for StorageApi {
         Self::new(5 * 1024 * 1024) // 5MB default
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_console_api_logging() {
+        let mut api = ConsoleApi::new();
+
+        api.log("test log");
+        api.info("test info");
+        api.warn("test warn");
+        api.error("test error");
+
+        let logs = api.get_logs();
+        assert_eq!(logs.len(), 4);
+
+        assert_eq!(logs[0].level, ConsoleLevel::Log);
+        assert_eq!(logs[0].message, "test log");
+
+        assert_eq!(logs[1].level, ConsoleLevel::Info);
+        assert_eq!(logs[1].message, "test info");
+
+        assert_eq!(logs[2].level, ConsoleLevel::Warn);
+        assert_eq!(logs[2].message, "test warn");
+
+        assert_eq!(logs[3].level, ConsoleLevel::Error);
+        assert_eq!(logs[3].message, "test error");
+    }
+
+    #[test]
+    fn test_console_api_clear() {
+        let mut api = ConsoleApi::new();
+
+        api.log("test");
+        assert_eq!(api.get_logs().len(), 1);
+
+        api.clear();
+        assert_eq!(api.get_logs().len(), 0);
+    }
+}
