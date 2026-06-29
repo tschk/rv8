@@ -215,7 +215,10 @@ fn main() {
         }
 
         // Advance frame time
-        next_frame_time = std::cmp::max(next_frame_time + frame_duration, now + Duration::from_millis(1));
+        next_frame_time = std::cmp::max(
+            next_frame_time + frame_duration,
+            now + Duration::from_millis(1),
+        );
 
         let snap = viewport.snapshot();
         if snap.title != last_title || snap.url != last_url {
