@@ -642,16 +642,16 @@ fn add_event_listener_callback(
         .push(v8::Global::new(scope, callback));
 }
 
-fn get_storage(
+fn get_storage<'a>(
     scope: &mut v8::HandleScope,
     this: v8::Local<v8::Object>,
-) -> Arc<RwLock<StorageApi>> {
+) -> &'a Arc<RwLock<StorageApi>> {
     let data = get_context_data(scope);
     let storage_type = get_number_property(scope, this, STORAGE_TYPE_KEY).unwrap_or(0);
     if storage_type == 0 {
-        data.local_storage.clone()
+        &data.local_storage
     } else {
-        data.session_storage.clone()
+        &data.session_storage
     }
 }
 
@@ -661,8 +661,10 @@ fn storage_get_item(
     mut rv: v8::ReturnValue,
 ) {
     let key = value_to_string(scope, args.get(0)).unwrap_or_default();
-    let storage = get_storage(scope, args.this());
-    let value = storage.read().get_item(&key).map(str::to_owned);
+    let value = {
+        let storage = get_storage(scope, args.this());
+        storage.read().get_item(&key).map(str::to_owned)
+    };
     if let Some(value) = value {
         if let Some(v8_str) = v8::String::new(scope, &value) {
             rv.set(v8_str.into());
@@ -679,8 +681,10 @@ fn storage_set_item(
 ) {
     let key = value_to_string(scope, args.get(0)).unwrap_or_default();
     let value = value_to_string(scope, args.get(1)).unwrap_or_default();
-    let storage = get_storage(scope, args.this());
-    let _ = storage.write().set_item(&key, &value);
+    {
+        let storage = get_storage(scope, args.this());
+        let _ = storage.write().set_item(&key, &value);
+    }
 }
 
 fn storage_remove_item(
@@ -689,8 +693,10 @@ fn storage_remove_item(
     _rv: v8::ReturnValue,
 ) {
     let key = value_to_string(scope, args.get(0)).unwrap_or_default();
-    let storage = get_storage(scope, args.this());
-    storage.write().remove_item(&key);
+    {
+        let storage = get_storage(scope, args.this());
+        storage.write().remove_item(&key);
+    }
 }
 
 fn storage_clear(
@@ -698,8 +704,10 @@ fn storage_clear(
     args: v8::FunctionCallbackArguments,
     _rv: v8::ReturnValue,
 ) {
-    let storage = get_storage(scope, args.this());
-    storage.write().clear();
+    {
+        let storage = get_storage(scope, args.this());
+        storage.write().clear();
+    }
 }
 
 pub(crate) fn dispatch_event(scope: &mut v8::HandleScope, event: &DomEvent) -> usize {
