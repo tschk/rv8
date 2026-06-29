@@ -258,3 +258,139 @@ impl Default for StorageApi {
         Self::new(5 * 1024 * 1024) // 5MB default
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_console_api() {
+        let mut console = ConsoleApi::new();
+
+        console.log("Test log");
+        console.info("Test info");
+        console.warn("Test warn");
+        console.error("Test error");
+
+        let logs = console.get_logs();
+        assert_eq!(logs.len(), 4);
+
+        assert_eq!(logs[0].level, ConsoleLevel::Log);
+        assert_eq!(logs[0].message, "Test log");
+
+        assert_eq!(logs[1].level, ConsoleLevel::Info);
+        assert_eq!(logs[1].message, "Test info");
+
+        assert_eq!(logs[2].level, ConsoleLevel::Warn);
+        assert_eq!(logs[2].message, "Test warn");
+
+        assert_eq!(logs[3].level, ConsoleLevel::Error);
+        assert_eq!(logs[3].message, "Test error");
+
+        console.clear();
+        assert_eq!(console.get_logs().len(), 0);
+    }
+
+    #[test]
+    fn test_timer_manager_timeout() {
+        let mut timers = TimerManager::new();
+
+        let cb_id = 42;
+        let delay_ms = 10;
+        let timer_id = timers.set_timeout(cb_id, delay_ms);
+
+        // Initially, the timer should not be ready
+        assert_eq!(timers.poll_ready_timers().len(), 0);
+
+        // Wait for the timeout
+        std::thread::sleep(Duration::from_millis(15));
+
+        let ready = timers.poll_ready_timers();
+        assert_eq!(ready.len(), 1);
+        assert_eq!(ready[0].id, timer_id);
+        assert_eq!(ready[0].callback_id, cb_id);
+        assert!(ready[0].interval.is_none());
+
+        // Timer should be removed after firing
+        assert_eq!(timers.poll_ready_timers().len(), 0);
+    }
+
+    #[test]
+    fn test_timer_manager_interval() {
+        let mut timers = TimerManager::new();
+
+        let cb_id = 43;
+        let interval_ms = 10;
+        let timer_id = timers.set_interval(cb_id, interval_ms);
+
+        // Wait for the first interval
+        std::thread::sleep(Duration::from_millis(15));
+
+        let ready = timers.poll_ready_timers();
+        assert_eq!(ready.len(), 1);
+        assert_eq!(ready[0].id, timer_id);
+        assert_eq!(ready[0].interval, Some(Duration::from_millis(interval_ms)));
+
+        // Wait for the second interval
+        std::thread::sleep(Duration::from_millis(15));
+
+        let ready2 = timers.poll_ready_timers();
+        assert_eq!(ready2.len(), 1);
+        assert_eq!(ready2[0].id, timer_id);
+    }
+
+    #[test]
+    fn test_timer_manager_clear() {
+        let mut timers = TimerManager::new();
+
+        let timer_id = timers.set_timeout(44, 10);
+        timers.clear_timer(timer_id);
+
+        std::thread::sleep(Duration::from_millis(15));
+
+        // Timer was cleared, should not fire
+        assert_eq!(timers.poll_ready_timers().len(), 0);
+    }
+
+    #[test]
+    fn test_storage_api_basic() {
+        let mut storage = StorageApi::new(1024);
+
+        assert_eq!(storage.length(), 0);
+        assert_eq!(storage.get_item("nonexistent"), None);
+
+        assert!(storage.set_item("key1", "value1").is_ok());
+        assert_eq!(storage.get_item("key1"), Some("value1"));
+        assert_eq!(storage.length(), 1);
+        assert_eq!(storage.key(0), Some("key1"));
+
+        assert!(storage.set_item("key2", "value2").is_ok());
+        assert_eq!(storage.length(), 2);
+
+        storage.remove_item("key1");
+        assert_eq!(storage.get_item("key1"), None);
+        assert_eq!(storage.length(), 1);
+
+        storage.clear();
+        assert_eq!(storage.length(), 0);
+        assert_eq!(storage.key(0), None);
+    }
+
+    #[test]
+    fn test_storage_api_quota() {
+        // Create storage with only 10 bytes quota
+        let mut storage = StorageApi::new(10);
+
+        // This is 4 (key) + 5 (value) = 9 bytes. Should succeed.
+        assert!(storage.set_item("key1", "value").is_ok());
+
+        // Adding another item would exceed 10 bytes total size
+        let result = storage.set_item("k2", "v2");
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "QuotaExceededError");
+
+        // Ensure the second item was not added
+        assert_eq!(storage.get_item("k2"), None);
+        assert_eq!(storage.length(), 1);
+    }
+}
