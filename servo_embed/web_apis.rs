@@ -153,9 +153,7 @@ impl TimerManager {
 
     /// Clear a timer (clearTimeout/clearInterval)
     pub fn clear_timer(&mut self, id: TimerId) {
-        if let Some(timer) = self.timers.get_mut(&id) {
-            timer.cancelled = true;
-        }
+        self.timers.remove(&id);
     }
 
     /// Get timers that are ready to fire
@@ -256,5 +254,22 @@ impl StorageApi {
 impl Default for StorageApi {
     fn default() -> Self {
         Self::new(5 * 1024 * 1024) // 5MB default
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_clear_timer() {
+        let mut manager = TimerManager::new();
+        let timer_id = manager.set_timeout(1, 100);
+
+        assert_eq!(manager.timers.len(), 1);
+
+        manager.clear_timer(timer_id);
+
+        assert!(manager.timers.is_empty());
     }
 }
