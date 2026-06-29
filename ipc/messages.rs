@@ -120,6 +120,10 @@ pub enum RendererMessage {
     Reload,
     /// Stop loading
     Stop,
+    /// Go back in history
+    GoBack,
+    /// Go forward in history
+    GoForward,
     /// Execute JavaScript
     ExecuteScript { script: String, callback_id: u64 },
     /// Shutdown renderer
