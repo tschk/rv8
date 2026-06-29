@@ -72,9 +72,6 @@ pub fn initialize_context<'s>(
 /// Remove and free the Rust data attached to the current V8 context.
 pub fn take_context_data(scope: &mut v8::HandleScope) -> Option<Box<V8ContextData>> {
     let ptr = context_data_ptr(scope)?;
-    if ptr.is_null() {
-        return None;
-    }
     let global = scope.get_current_context().global(scope);
     let key = v8::String::new(scope, CONTEXT_DATA_KEY)?;
     let undefined = v8::undefined(scope);
@@ -771,7 +768,6 @@ fn create_event_object<'s>(
 
 pub(crate) fn get_context_data(scope: &mut v8::HandleScope) -> &'static V8ContextData {
     let ptr = context_data_ptr(scope).expect("V8 context data should be installed");
-    assert!(!ptr.is_null(), "V8 context data pointer is null");
     // SAFETY: `ptr` is owned by the current V8 context and freed by `take_context_data`.
     unsafe { ptr.as_ref() }
 }

@@ -332,6 +332,10 @@ impl Browser {
     }
 
     /// Persistent profile storage (cookies, session, metadata).
+    pub fn config(&self) -> &BrowserConfig {
+        &self.config
+    }
+
     pub fn storage(&self) -> &StorageManager {
         &self.storage
     }

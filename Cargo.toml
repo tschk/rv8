@@ -86,7 +86,8 @@ cocoa = "0.26"
 objc2 = "0.5"
 
 [features]
-default = ["multi-process", "servo-render"]
+# servo-render is opt-in until the Servo V8 bridge (js_stub ↔ script_bindings codegen) is synced.
+default = ["multi-process"]
 multi-process = []
 single-process = []
 x11 = ["x11rb"]
