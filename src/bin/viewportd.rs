@@ -3,7 +3,7 @@
 use std::io::{self, BufRead, Write};
 use std::sync::mpsc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use rv8::servo_embed::viewport::ServoViewport;
 
@@ -171,18 +171,51 @@ fn main() {
     let mut last_find_matches: u32 = u32::MAX;
     let mut last_find_active: u32 = u32::MAX;
     let mut last_link_url = String::new();
+
+    let frame_duration = Duration::from_millis(16);
+    let mut next_frame_time = Instant::now() + frame_duration;
+
     loop {
-        while let Ok(cmd) = cmd_rx.try_recv() {
-            match cmd {
-                Cmd::Quit => return,
-                Cmd::Navigate(url) => viewport.navigate(&url),
-                Cmd::Resize { width, height } => viewport.resize(width, height),
-                Cmd::Scroll { delta_x, delta_y } => viewport.scroll_by(delta_x, delta_y),
-                Cmd::FindInPage { query, forward } => viewport.find_in_page(&query, forward),
-                Cmd::FindStop => viewport.find_stop(),
-                Cmd::Click { x, y } => viewport.click_at(x, y),
+        let now = Instant::now();
+        let timeout = if next_frame_time > now {
+            next_frame_time.duration_since(now)
+        } else {
+            Duration::from_millis(0)
+        };
+
+        // Wait for next command or until it's time for the next frame
+        let first_cmd = match cmd_rx.recv_timeout(timeout) {
+            Ok(cmd) => Some(cmd),
+            Err(mpsc::RecvTimeoutError::Timeout) => None,
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                // If the channel is disconnected, we should sleep to avoid a busy loop,
+                // but since the producer is gone, we'll just exit.
+                return;
+            }
+        };
+
+        if let Some(cmd) = first_cmd {
+            let cmds = std::iter::once(cmd).chain(cmd_rx.try_iter());
+            for cmd in cmds {
+                match cmd {
+                    Cmd::Quit => return,
+                    Cmd::Navigate(url) => viewport.navigate(&url),
+                    Cmd::Resize { width, height } => viewport.resize(width, height),
+                    Cmd::Scroll { delta_x, delta_y } => viewport.scroll_by(delta_x, delta_y),
+                    Cmd::FindInPage { query, forward } => viewport.find_in_page(&query, forward),
+                    Cmd::FindStop => viewport.find_stop(),
+                    Cmd::Click { x, y } => viewport.click_at(x, y),
+                }
             }
         }
+
+        let now = Instant::now();
+        if now < next_frame_time {
+            continue; // We woke up early for a command, don't render a frame yet
+        }
+
+        // Advance frame time
+        next_frame_time = std::cmp::max(next_frame_time + frame_duration, now + Duration::from_millis(1));
 
         let snap = viewport.snapshot();
         if snap.title != last_title || snap.url != last_url {
@@ -224,7 +257,5 @@ fn main() {
             let mut out = io::stdout().lock();
             let _ = write_link(&mut out, "");
         }
-
-        thread::sleep(Duration::from_millis(16));
     }
 }
