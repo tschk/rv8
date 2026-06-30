@@ -435,7 +435,6 @@ mod tests {
     use super::*;
 
     #[test]
-    #[ignore = "full Servo in-process integration; run with --ignored"]
     fn data_page_renders_with_layout() {
         let mut renderer = ServoRenderer::new(800, 600).expect("servo renderer");
         renderer
