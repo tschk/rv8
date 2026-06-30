@@ -373,7 +373,10 @@ impl ServoRenderer {
             });
         }
         let polyfill_timeout_secs = if cfg!(test) { 3 } else { 8 };
-        let _ = self.pump_until(|| done.load(Ordering::Relaxed), Duration::from_secs(polyfill_timeout_secs));
+        let _ = self.pump_until(
+            || done.load(Ordering::Relaxed),
+            Duration::from_secs(polyfill_timeout_secs),
+        );
         self.pump_for(Duration::from_millis(if cfg!(test) { 50 } else { 200 }));
     }
 
@@ -451,6 +454,12 @@ mod tests {
         assert!(
             non_white > frame.pixels.len() / 4000,
             "expected visible non-white page pixels"
+        );
+        assert_eq!(
+            renderer
+                .evaluate_script_sync("document.readyState")
+                .expect("evaluate realm smoke"),
+            "complete"
         );
     }
 

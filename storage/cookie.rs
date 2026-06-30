@@ -58,8 +58,12 @@ pub struct CookieJar {
 }
 
 enum CookieJarInner {
-    Persistent { tree: Tree },
-    Ephemeral { cache: RwLock<HashMap<String, Cookie>> },
+    Persistent {
+        tree: Tree,
+    },
+    Ephemeral {
+        cache: RwLock<HashMap<String, Cookie>>,
+    },
 }
 
 impl CookieJar {
@@ -169,11 +173,7 @@ impl CookieJar {
                 tree.flush()?;
             }
             CookieJarInner::Ephemeral { cache } => {
-                *cache.write() = snapshot
-                    .cookies
-                    .into_iter()
-                    .map(|c| (c.key(), c))
-                    .collect();
+                *cache.write() = snapshot.cookies.into_iter().map(|c| (c.key(), c)).collect();
             }
         }
         Ok(())

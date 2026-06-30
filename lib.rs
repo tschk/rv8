@@ -42,6 +42,8 @@ pub mod core;
 // Rendering engine
 pub mod renderer;
 
+pub mod engine;
+
 // JavaScript engine
 pub mod js;
 
