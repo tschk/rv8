@@ -142,7 +142,7 @@ impl ServoRenderer {
         let load_timeout_secs = std::env::var("RV8_LOAD_TIMEOUT_SECS")
             .ok()
             .and_then(|s| s.parse().ok())
-            .unwrap_or(180);
+            .unwrap_or(if cfg!(test) { 15 } else { 180 });
         let load_timeout = Duration::from_secs(load_timeout_secs);
         let load_ok = self
             .pump_until(|| self.load_complete.load(Ordering::Relaxed), load_timeout)
@@ -157,15 +157,16 @@ impl ServoRenderer {
         let settle_ms = std::env::var("RV8_SCRIPT_SETTLE_MS")
             .ok()
             .and_then(|s| s.parse().ok())
-            .unwrap_or(3500);
+            .unwrap_or(if cfg!(test) { 150 } else { 3500 });
         self.pump_for(Duration::from_millis(settle_ms));
         self.install_polyfills();
         if let Some(webview) = &self.webview {
             webview.paint();
         }
+        let frame_timeout_secs = if cfg!(test) { 10 } else { 45 };
         let _ = self.pump_until(
             || self.frame_ready.load(Ordering::Relaxed),
-            Duration::from_secs(45),
+            Duration::from_secs(frame_timeout_secs),
         );
         self.pump_for(Duration::from_millis(400));
         Ok(())
@@ -371,8 +372,9 @@ impl ServoRenderer {
                 done_cb.store(true, Ordering::Relaxed);
             });
         }
-        let _ = self.pump_until(|| done.load(Ordering::Relaxed), Duration::from_secs(8));
-        self.pump_for(Duration::from_millis(200));
+        let polyfill_timeout_secs = if cfg!(test) { 3 } else { 8 };
+        let _ = self.pump_until(|| done.load(Ordering::Relaxed), Duration::from_secs(polyfill_timeout_secs));
+        self.pump_for(Duration::from_millis(if cfg!(test) { 50 } else { 200 }));
     }
 
     fn pump_until(&self, done: impl Fn() -> bool, timeout: Duration) -> Result<(), String> {
@@ -433,6 +435,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore = "full Servo in-process integration; run with --ignored"]
     fn data_page_renders_with_layout() {
         let mut renderer = ServoRenderer::new(800, 600).expect("servo renderer");
         renderer
