@@ -1,4 +1,9 @@
 //! Minimal DOM/JS shims injected into every document so modern SPAs boot under Servo.
+//!
+//! Injected after page navigation before any application script runs.
+//! These are JS-level polyfills that fill gaps in Servo's Web API surface.
+//! Rust-level V8 bindings (console, timers, storage) live in js/ for the
+//! standalone `rv8-v8` feature path. This file is for the servo-render path.
 
 pub const SCRIPT: &str = r#"
 (function () {
@@ -6,6 +11,7 @@ pub const SCRIPT: &str = r#"
   if (root.__rv8EmbedPolyfills) return;
   root.__rv8EmbedPolyfills = true;
 
+  // ── ResizeObserver ──
   if (typeof root.ResizeObserver === "undefined") {
     var registry = [];
     var tick = function () {
@@ -67,10 +73,63 @@ pub const SCRIPT: &str = r#"
     }
   }
 
+  // ── queueMicrotask ──
   if (typeof root.queueMicrotask === "undefined") {
     root.queueMicrotask = function (callback) {
       Promise.resolve().then(callback).catch(function () {});
     };
+  }
+
+  // ── console — polyfill missing methods ──
+  if (typeof root.console === "undefined") {
+    root.console = {};
+  }
+  var c = root.console;
+  var noop = function () {};
+  var methods = ["log","warn","error","info","debug","trace","dir","group","groupEnd","time","timeEnd","assert"];
+  for (var i = 0; i < methods.length; i++) {
+    if (typeof c[methods[i]] === "undefined") c[methods[i]] = noop;
+  }
+
+  // ── setTimeout / clearTimeout ──
+  if (typeof root.setTimeout === "undefined") {
+    var timerId = 1;
+    var timers = {};
+    root.setTimeout = function (fn, ms) {
+      var id = timerId++;
+      timers[id] = { fn: fn, interval: false };
+      return id;
+    };
+    root.clearTimeout = function (id) {
+      delete timers[id];
+    };
+    root.setInterval = function (fn, ms) {
+      var id = timerId++;
+      timers[id] = { fn: fn, interval: true };
+      return id;
+    };
+    root.clearInterval = function (id) {
+      delete timers[id];
+    };
+  }
+
+  // ── localStorage / sessionStorage ──
+  function makeStorage() {
+    var store = {};
+    return {
+      get length() { return Object.keys(store).length; },
+      key: function (i) { return Object.keys(store)[i] || null; },
+      getItem: function (k) { return store.hasOwnProperty(k) ? store[k] : null; },
+      setItem: function (k, v) { store[k] = String(v); },
+      removeItem: function (k) { delete store[k]; },
+      clear: function () { store = {}; }
+    };
+  }
+  if (typeof root.localStorage === "undefined") {
+    root.localStorage = makeStorage();
+  }
+  if (typeof root.sessionStorage === "undefined") {
+    root.sessionStorage = makeStorage();
   }
 })();
 "#;

@@ -9,7 +9,9 @@
 //! - This module bridges the two engines
 
 use log::{debug, info};
+#[cfg(not(feature = "servo-render"))]
 use parking_lot::RwLock;
+#[cfg(not(feature = "servo-render"))]
 use std::sync::Arc;
 
 use crate::js::JsValue;

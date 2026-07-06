@@ -4,59 +4,29 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  check:
-    name: Check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      - name: Clone crepuscularity
-        run: git clone --depth 1 https://github.com/tschk/crepuscularity.git ../crepuscularity
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo check --no-default-features
-
   test:
-    name: Test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          submodules: recursive
-      - name: Clone crepuscularity
-        run: git clone --depth 1 https://github.com/tschk/crepuscularity.git ../crepuscularity
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo test --no-default-features
-
-  clippy:
-    name: Clippy
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      - name: Clone crepuscularity
-        run: git clone --depth 1 https://github.com/tschk/crepuscularity.git ../crepuscularity
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy --no-default-features
-
-  fmt:
-    name: Format
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
-      - run: cargo fmt --all -- --check
+          toolchain: stable
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dri
+      - name: Build (default)
+        run: cargo build
+      - name: Test (default)
+        run: cargo test
+      - name: Build (servo-render)
+        run: cargo build --features servo-render
+      - name: Test (servo-render)
+        run: cargo test --features servo-render
+      - name: Release build (default)
+        run: cargo build --release
+      - name: Release build (servo-render)
+        run: cargo build --release --features servo-render

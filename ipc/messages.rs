@@ -105,6 +105,8 @@ pub enum BrowserMessage {
     },
     /// Request to close tab
     CloseTab { tab_id: u64 },
+    /// Renderer process exited or crashed
+    RendererCrashed { tab_id: u64 },
 }
 
 /// Messages from browser to renderer process

@@ -48,7 +48,9 @@ impl NetworkProcess {
     }
 
     pub async fn run(&self) {
-        info!("Network process running...");
+        info!("Network process running on channel {}", self._channel_id);
+        // ponytail: subprocess IPC bootstrap not wired yet.
+        // See spawn_renderer_process for IpcOneShotServer pattern.
         std::future::pending::<()>().await;
     }
 }

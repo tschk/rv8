@@ -121,6 +121,16 @@ impl Browser {
             BrowserMessage::LoadComplete { tab_id } => {
                 debug!("Tab {} load complete", tab_id);
             }
+            BrowserMessage::RendererCrashed { tab_id } => {
+                let tab_id = TabId(tab_id);
+                info!("Renderer crashed for tab {}", tab_id.0);
+                let tabs = self.tabs.read().await;
+                if let Some(tab) = tabs.get(&tab_id) {
+                    tab.lock().await.mark_crashed();
+                }
+                drop(tabs);
+                // ponytail: mark crashed but don't auto-restart yet
+            }
             other => {
                 debug!("Browser message: {:?}", other);
             }
@@ -565,5 +575,55 @@ mod tests {
 
         browser.close_tab(tab_id_2).await.unwrap();
         assert_eq!(browser.tab_count().await, 0);
+    }
+
+    #[tokio::test]
+    async fn test_crash_detection_marks_tab_as_crashed() {
+        let (browser, _dir) = create_test_browser().await;
+        let tab_id = TabId(42);
+
+        browser.handle_renderer_message(BrowserMessage::RendererCrashed { tab_id: 42 }).await;
+
+        // Tab doesn't exist; just checks no panic
+        // Now test with an actual tab
+        // Create a tab directly
+        let (tx_to_renderer, _) = crate::ipc::channel::<crate::ipc::RendererMessage>().unwrap();
+        let renderer_client = crate::ipc::RendererClient::new(3, tx_to_renderer);
+        let network = browser.network.clone();
+        let mut tab = crate::core::Tab::new(tab_id, "https://example.com".into(), renderer_client, network).await.unwrap();
+        assert_eq!(tab.state(), &crate::core::TabState::New);
+
+        // Insert tab into browser
+        browser.tabs.write().await.insert(tab_id, std::sync::Arc::new(tokio::sync::Mutex::new(tab)));
+
+        // Send crash message
+        browser.handle_renderer_message(BrowserMessage::RendererCrashed { tab_id: 42 }).await;
+
+        // Verify tab is marked crashed
+        let tabs = browser.tabs.read().await;
+        let tab = tabs.get(&tab_id).unwrap().lock().await;
+        assert_eq!(tab.state(), &crate::core::TabState::Crashed);
+    }
+
+    #[cfg(not(feature = "servo-render"))]
+    #[tokio::test]
+    async fn test_inprocess_renderer_starts_without_panic() {
+        // Smoke test: in-process renderer starts and doesn't crash
+        // Skipped with servo-render: Servo's global opts conflict with parallel tests.
+        // The servo-render path has its own full integration test (data_page_renders_with_layout).
+        let (mut browser, _dir) = create_test_browser().await;
+        let tab_id = browser.new_tab("https://example.com").await.unwrap();
+        assert_eq!(browser.tab_count().await, 1);
+
+        // Give the renderer task a moment to initialize
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        // Tab should be in Loading state (renderer started, navigation attempted)
+        let tabs = browser.tabs.read().await;
+        let tab = tabs.get(&tab_id).unwrap().lock().await;
+        // Renderer was spawned in a task; we don't await it, so tab state may vary.
+        // Just verify it's not Crashed and exists.
+        assert_ne!(tab.state(), &crate::core::TabState::Crashed);
+        assert!(tab.url().contains("example.com"));
     }
 }

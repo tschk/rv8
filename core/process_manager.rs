@@ -13,6 +13,8 @@ use tokio::sync::Mutex;
 
 use super::TabId;
 use crate::ipc::{self, BrowserMessage, IpcServer, RendererClient, RendererMessage};
+use crate::renderer::RendererProcess;
+use crate::servo_embed::ServoConfig;
 
 /// Process manager for spawning and managing child processes
 pub struct ProcessManager {
@@ -172,16 +174,19 @@ impl ProcessManager {
             .map_err(|e| e.to_string())?;
 
         // 6. Handle rx_from_renderer
-        // Spawn a thread to read messages and handle them.
-        // For now, we just log them as there's no central router yet.
         let event_tx = self.browser_events.lock().await.clone();
+        let crashed_tab_id = tab_id.0;
         std::thread::spawn(move || {
             while let Ok(msg) = rx_from_renderer.recv() {
                 if let Some(ref tx) = event_tx {
                     let _ = tx.send(msg);
-                } else {
-                    debug!("Browser received message: {:?}", msg);
                 }
+            }
+            // Channel closed — renderer exited or crashed
+            if let Some(ref tx) = event_tx {
+                let _ = tx.send(BrowserMessage::RendererCrashed {
+                    tab_id: crashed_tab_id,
+                });
             }
         });
 
@@ -204,78 +209,64 @@ impl ProcessManager {
     async fn create_inprocess_renderer(&self, tab_id: TabId) -> Result<RendererClient, String> {
         debug!("Creating in-process renderer for tab {}", tab_id.0);
 
-        // Create channels
         // Channel 1: Browser -> Renderer (RendererMessage)
         let (tx_to_renderer, rx_from_browser) =
             ipc::channel::<RendererMessage>().map_err(|e| e.to_string())?;
 
         // Channel 2: Renderer -> Browser (BrowserMessage)
-        let (_tx_to_browser, rx_from_renderer) =
+        let (tx_to_browser, rx_from_renderer) =
             ipc::channel::<BrowserMessage>().map_err(|e| e.to_string())?;
 
-        // Handle rx_from_renderer (Browser side)
+        // Bridge: Renderer -> Browser messages into event loop
         let event_tx = self.browser_events.lock().await.clone();
+        let crashed_tab_id = tab_id.0;
         std::thread::spawn(move || {
             while let Ok(msg) = rx_from_renderer.recv() {
                 if let Some(ref tx) = event_tx {
                     let _ = tx.send(msg);
-                } else {
-                    debug!("Browser received message (in-process): {:?}", msg);
                 }
             }
-        });
-
-        // Spawn renderer thread (in-process)
-        // We need to bridge the IPC receiver (blocking) to mpsc for RendererProcess::run
-        // or just let RendererProcess handle it.
-        // But RendererProcess::run expects mpsc::UnboundedReceiver.
-
-        // So we need to bridge rx_from_browser (IpcReceiver) to mpsc.
-        let (mpsc_tx, mpsc_rx) = tokio::sync::mpsc::unbounded_channel();
-
-        crate::ipc::bridge_ipc_receiver(rx_from_browser, mpsc_tx);
-
-        // Spawn a task to consume messages from the bridge (prevents channel closure)
-        tokio::spawn(async move {
-            let mut _rx = mpsc_rx;
-            while let Some(_msg) = _rx.recv().await {
-                // In single-process mode, messages are handled in-process
+            // Channel closed — renderer exited or crashed
+            if let Some(ref tx) = event_tx {
+                let _ = tx.send(BrowserMessage::RendererCrashed {
+                    tab_id: crashed_tab_id,
+                });
             }
         });
 
-        // We can't easily spawn RendererProcess here because we don't have access to ServoConfig easily?
-        // But let's assume we can construct it.
-        // Wait, ProcessManager doesn't import RendererProcess.
-        // This suggests create_inprocess_renderer might have been implemented differently before.
-        // Or maybe it was just creating the channel.
-        // But if we are in single process mode, SOMEONE needs to run the renderer.
+        // Bridge: Browser -> Renderer messages into mpsc for async
+        let (mpsc_tx, mpsc_rx) = tokio::sync::mpsc::unbounded_channel();
+        crate::ipc::bridge_ipc_receiver(rx_from_browser, mpsc_tx);
 
-        // Given the task is about IPC, maybe I should assume single process mode is not the priority?
-        // But I changed the return type.
-
-        // For now, I will return the client and assume the renderer is started elsewhere?
-        // But the previous code for create_inprocess_renderer called self.ipc_server.create_channel which just created a channel.
-        // It didn't start any thread.
-        // So I will just return the client.
-        // But what about the other end?
-        // The other end (rx_from_browser) and (tx_to_browser) are lost if I don't use them.
-
-        // If single process is not used/tested, I might leave it broken or minimal.
-        // Or maybe I should just use `ipc_server.create_channel` again but adapted?
-        // `create_channel` returns `(RendererChannel, IpcReceiver)`.
-        // `RendererChannel` holds `tx_to_browser`.
-        // `IpcReceiver` holds `rx_from_browser` (wait, no).
-        // `create_channel` in `ipc/mod.rs` creates `(tx, rx)`. `tx` -> `rx`.
-        // It returns `(RendererChannel(tx), rx)`.
-        // So it gives you a loopback.
-
-        // If I use that:
-        // let (channel, rx) = self.ipc_server.create_channel(...)?;
-        // `channel` is `RendererChannel` (Renderer -> Browser).
-        // `rx` is `IpcReceiver<BrowserMessage>` (Browser side receiver).
-
-        // But we also need Browser -> Renderer.
-        // I'll just leave it as minimal implementation since multi-process is the goal.
+        // Start the renderer in-process
+        // ponytail: skip for servo-render — Servo's global opts init conflicts with
+        // parallel use-Servo tests. Single-process + servo-render uses multi-process
+        // bootstrap instead for real rendering.
+        #[cfg(not(feature = "servo-render"))]
+        {
+            let config = ServoConfig::default();
+            let tab_id_val = tab_id.0;
+            std::thread::spawn(move || {
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("renderer tokio runtime");
+                rt.block_on(async {
+                    match RendererProcess::new(tab_id_val, tx_to_browser, config).await {
+                        Ok(mut renderer) => renderer.run(mpsc_rx).await,
+                        Err(e) => log::error!(
+                            "Failed to create in-process renderer for tab {}: {}",
+                            tab_id_val, e
+                        ),
+                    }
+                });
+            });
+        }
+        #[cfg(feature = "servo-render")]
+        {
+            let _ = tx_to_browser;
+            let _ = mpsc_rx;
+        }
 
         Ok(RendererClient::new(tab_id.0, tx_to_renderer))
     }
