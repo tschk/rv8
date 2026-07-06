@@ -113,6 +113,62 @@ pub const SCRIPT: &str = r#"
     };
   }
 
+  // ── fetch — polyfill via XMLHttpRequest ──
+  if (typeof root.fetch === "undefined" && typeof root.XMLHttpRequest !== "undefined") {
+    root.fetch = function (url, opts) {
+      opts = opts || {};
+      var method = (opts.method || "GET").toUpperCase();
+      var headers = opts.headers || {};
+      var body = opts.body || null;
+      return new Promise(function (resolve, reject) {
+        var xhr = new XMLHttpRequest();
+        xhr.open(method, url, true);
+        xhr.withCredentials = true;
+        // Set headers
+        if (typeof headers === "object") {
+          for (var k in headers) {
+            if (headers.hasOwnProperty(k)) {
+              xhr.setRequestHeader(k, headers[k]);
+            }
+          }
+        }
+        xhr.onload = function () {
+          var respHeaders = {};
+          var hdr = xhr.getAllResponseHeaders() || "";
+          hdr.split("\r\n").forEach(function (line) {
+            var idx = line.indexOf(":");
+            if (idx > 0) {
+              respHeaders[line.substring(0, idx).toLowerCase()] = line.substring(idx + 2);
+            }
+          });
+          resolve(new Response(xhr.responseText, {
+            status: xhr.status,
+            statusText: xhr.statusText,
+            headers: respHeaders,
+          }));
+        };
+        xhr.onerror = function () { reject(new TypeError("Network fetch failed")); };
+        xhr.ontimeout = function () { reject(new TypeError("Fetch timeout")); };
+        xhr.send(body);
+      });
+    };
+    // Minimal Response polyfill needed for fetch
+    if (typeof root.Response === "undefined") {
+      root.Response = function (body, init) {
+        init = init || {};
+        this.body = body;
+        this.status = init.status || 200;
+        this.statusText = init.statusText || "OK";
+        this.ok = this.status >= 200 && this.status < 300;
+        this.headers = init.headers || {};
+        this._bodyText = body;
+      };
+      root.Response.prototype.text = function () { return Promise.resolve(String(this._bodyText)); };
+      root.Response.prototype.json = function () { return Promise.resolve(JSON.parse(this._bodyText)); };
+      root.Response.prototype.blob = function () { return Promise.resolve(new Blob([this._bodyText])); };
+    }
+  }
+
   // ── localStorage / sessionStorage ──
   function makeStorage() {
     var store = {};

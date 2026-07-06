@@ -1,144 +1,122 @@
-//! RV8 browser chrome: GPUI shell (crepuscularity).
-//! Separate from engine — chrome-only process.
-//! For full rendering, build with `--features chrome,servo-render` (requires Servo compile).
+//! RV8 browser chrome — gpui shell with Servo rendering.
+//! Build: cargo run --features chrome,servo-render --bin rv8-chrome
 
 use crepuscularity_gpui::prelude::*;
 use gpui::{
-    actions, bounds, point, px, rgb, size, AnyElement, ClickEvent, Entity, Focusable, KeyBinding,
-    Render, StatefulInteractiveElement, Window,
+    actions, point, px, rgb, size, Bounds, KeyBinding, Render, Window,
+    WindowBounds, WindowOptions,
 };
 
 actions!(
     rv8_chrome,
-    [NewTab, CloseTab, GoBack, GoForward, Reload, FocusOmnibox]
+    [NewTab, CloseTab, GoBack, GoForward, Reload, FocusUrl]
 );
 
-const CHROME_BG: u32 = 0x101010;
-const CONTENT_BG: u32 = 0x1b1b1b;
+const BG: u32 = 0x1a1a1a;
+const BG_HOVER: u32 = 0x2a2a2a;
+const SURFACE: u32 = 0x2c2c2e;
+const BORDER: u32 = 0x3a3a3c;
 const TEXT: u32 = 0xe4e4e7;
-const MUTED: u32 = 0x71717a;
+const TEXT_MUTED: u32 = 0x8e8e93;
+const TEXT_URL: u32 = 0x34d399;
+const TAB_BG: u32 = 0x000000;
+const TAB_INACTIVE: u32 = 0x1a1a1a;
+const TOOLBAR: u32 = 0x171717;
 
-struct BrowserTab {
+struct Tab {
     id: u64,
-    title: String,
     url: String,
+    title: String,
     loading: bool,
 }
 
-impl BrowserTab {
-    fn new(id: u64, url: impl Into<String>) -> Self {
-        let url = url.into();
-        let title = title_from_url(&url);
+impl Tab {
+    fn new(id: u64, url: &str) -> Self {
         Self {
             id,
-            title,
-            url,
+            url: url.to_string(),
+            title: Self::display_title(url),
+            loading: false,
+        }
+    }
+
+    fn display_title(url: &str) -> String {
+        url.trim()
+            .strip_prefix("https://")
+            .or_else(|| url.trim().strip_prefix("http://"))
+            .unwrap_or(url.trim())
+            .split('/')
+            .next()
+            .unwrap_or(url.trim())
+            .to_string()
+    }
+}
+
+struct Chrome {
+    tabs: Vec<Tab>,
+    active: usize,
+    next_id: u64,
+    url_text: String,
+    loading: bool,
+}
+
+impl Chrome {
+    fn new() -> Self {
+        let url = "https://google.com".to_string();
+        Self {
+            tabs: vec![Tab::new(1, &url)],
+            active: 0,
+            next_id: 2,
+            url_text: url,
             loading: true,
         }
     }
-}
 
-fn title_from_url(url: &str) -> String {
-    let trimmed = url.trim();
-    if trimmed.is_empty() {
-        return "New Tab".into();
-    }
-    let host = trimmed
-        .strip_prefix("https://")
-        .or_else(|| trimmed.strip_prefix("http://"))
-        .unwrap_or(trimmed)
-        .split('/')
-        .next()
-        .unwrap_or(trimmed)
-        .split('@')
-        .next_back()
-        .unwrap_or(trimmed);
-    if host.len() > 28 {
-        format!("{}…", &host[..25])
-    } else {
-        host.to_string()
-    }
-}
-
-struct ChromeView {
-    tabs: Vec<BrowserTab>,
-    active_tab: usize,
-    next_tab_id: u64,
-    omnibox_text: String,
-}
-
-impl ChromeView {
-    fn new(_window: &mut Window, _cx: &mut Context<Self>) -> Self {
-        let start_url = "https://example.com/";
-        let tab = BrowserTab::new(1, start_url);
-        Self {
-            tabs: vec![tab],
-            active_tab: 0,
-            next_tab_id: 2,
-            omnibox_text: start_url.to_string(),
-        }
-    }
-
-    fn navigate_to(&mut self, raw: &str, cx: &mut Context<Self>) {
+    fn navigate(&mut self, raw: &str) {
         let url = normalize_url(raw);
-        if let Some(tab) = self.tabs.get_mut(self.active_tab) {
-            tab.url = url.clone();
-            tab.title = title_from_url(&url);
+        self.url_text = url.clone();
+        self.loading = true;
+        if let Some(tab) = self.tabs.get_mut(self.active) {
+            tab.url = url;
+            tab.loading = true;
         }
-        self.omnibox_text = url;
+    }
+
+    fn nav(&mut self, _: &GoBack, _: &mut Window, _: &mut Context<Self>) {}
+    fn nav_fwd(&mut self, _: &GoForward, _: &mut Window, _: &mut Context<Self>) {}
+    fn do_reload(&mut self, _: &Reload, _: &mut Window, cx: &mut Context<Self>) {
+        let url = self.url_text.clone();
+        self.navigate(&url);
+        cx.notify();
+    }
+    fn do_focus(&mut self, _: &FocusUrl, _: &mut Window, _: &mut Context<Self>) {}
+
+    fn do_new_tab(&mut self, _: &NewTab, _: &mut Window, cx: &mut Context<Self>) {
+        let id = self.next_id;
+        self.next_id += 1;
+        let url = "https://google.com".to_string();
+        self.tabs.push(Tab::new(id, &url));
+        self.active = self.tabs.len() - 1;
+        self.url_text = url;
         cx.notify();
     }
 
-    fn active_url(&self) -> String {
-        self.tabs
-            .get(self.active_tab)
-            .map(|t| t.url.clone())
-            .unwrap_or_default()
-    }
-
-    fn new_tab(&mut self, _: &NewTab, _w: &mut Window, cx: &mut Context<Self>) {
-        let id = self.next_tab_id;
-        self.next_tab_id += 1;
-        self.tabs.push(BrowserTab::new(id, "https://example.com/"));
-        self.active_tab = self.tabs.len() - 1;
-        self.omnibox_text = "https://example.com/".into();
-        cx.notify();
-    }
-
-    fn close_tab(&mut self, _: &CloseTab, _w: &mut Window, cx: &mut Context<Self>) {
+    fn do_close_tab(&mut self, _: &CloseTab, _: &mut Window, cx: &mut Context<Self>) {
         if self.tabs.len() <= 1 {
             return;
         }
-        self.tabs.remove(self.active_tab);
-        if self.active_tab >= self.tabs.len() {
-            self.active_tab = self.tabs.len() - 1;
-        }
-        self.omnibox_text = self.active_url();
+        self.tabs.remove(self.active);
+        self.active = self.active.min(self.tabs.len().saturating_sub(1));
+        self.url_text = self.tabs[self.active].url.clone();
         cx.notify();
     }
 
     fn select_tab(&mut self, idx: usize, cx: &mut Context<Self>) {
-        if idx >= self.tabs.len() || idx == self.active_tab {
+        if idx >= self.tabs.len() || idx == self.active {
             return;
         }
-        self.active_tab = idx;
-        self.omnibox_text = self.active_url();
-        cx.notify();
-    }
-
-    fn go_back(&mut self, _: &GoBack, _w: &mut Window, cx: &mut Context<Self>) {
-        cx.notify();
-    }
-
-    fn go_forward(&mut self, _: &GoForward, _w: &mut Window, cx: &mut Context<Self>) {
-        cx.notify();
-    }
-
-    fn reload(&mut self, _: &Reload, _w: &mut Window, cx: &mut Context<Self>) {
-        cx.notify();
-    }
-
-    fn focus_omnibox(&mut self, _: &FocusOmnibox, _w: &mut Window, cx: &mut Context<Self>) {
+        self.active = idx;
+        self.url_text = self.tabs[idx].url.clone();
         cx.notify();
     }
 }
@@ -148,7 +126,7 @@ fn normalize_url(input: &str) -> String {
     if t.is_empty() {
         return "about:blank".into();
     }
-    if t.contains("://") || t.starts_with("about:") {
+    if t.contains("://") || t.starts_with("about:") || t.starts_with("data:") {
         return t.to_string();
     }
     if t.contains('.') && !t.contains(' ') {
@@ -158,31 +136,46 @@ fn normalize_url(input: &str) -> String {
     }
 }
 
-impl Render for ChromeView {
+impl Render for Chrome {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let active_url = self.active_url();
-        let secure = active_url.starts_with("https://");
+        let secure = self.url_text.starts_with("https://");
 
-        let tab_count = self.tabs.len();
-        let mut tab_els: Vec<AnyElement> = Vec::new();
-        for (idx, tab) in self.tabs.iter().enumerate() {
-            let sel = idx == self.active_tab;
-            let bg = if sel { CONTENT_BG } else { CHROME_BG };
-            let mut el = div()
+        // Tab bar
+        let mut tab_els = Vec::new();
+        for (i, tab) in self.tabs.iter().enumerate() {
+            let sel = i == self.active;
+            let bg = if sel { TAB_BG } else { TAB_INACTIVE };
+            let close = if self.tabs.len() > 1 {
+                div()
+                    .size(px(20.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(4.))
+                    .text_sm()
+                    .text_color(rgb(TEXT_MUTED))
+                    .hover(|s| s.bg(rgb(SURFACE)).text_color(rgb(TEXT)))
+                    .child("×")
+                    .into_any_element()
+            } else {
+                div().into_any_element()
+            };
+
+            let t = div()
                 .flex()
                 .flex_row()
                 .items_center()
-                .gap_0p5()
-                .max_w(px(200.))
+                .gap(px(4.))
+                .max_w(px(180.))
                 .flex_shrink_0()
-                .px_2()
-                .py_1p5()
+                .px(px(8.))
+                .py(px(6.))
                 .rounded_t(px(7.))
                 .bg(rgb(bg))
                 .border_t_1()
                 .border_x_1()
-                .border_color(rgb(if sel { 0x3f3f46 } else { CHROME_BG }))
-                .hover(|s| s.bg(rgb(if sel { CONTENT_BG } else { 0x242424 })))
+                .border_color(rgb(if sel { BORDER } else { BG }))
+                .cursor_pointer()
                 .child(
                     div()
                         .flex_1()
@@ -191,136 +184,127 @@ impl Render for ChromeView {
                         .text_sm()
                         .text_color(rgb(TEXT))
                         .child(if tab.loading {
-                            format!("○ {}", tab.title)
+                            format!("◌ {}", tab.title)
                         } else {
                             tab.title.clone()
                         }),
-                );
+                )
+                .child(close);
 
-            if tab_count > 1 {
-                let close = div()
-                    .size(px(20.))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .rounded(px(4.))
-                    .text_sm()
-                    .text_color(rgb(MUTED))
-                    .hover(|s| s.bg(rgb(0x3f3f46)).text_color(rgb(TEXT)))
-                    .child("×");
-                el = el.child(close);
-            }
-            tab_els.push(el.into_any_element());
+            // Clone what we need for the closure
+            let idx = i;
+            let t = t.on_mouse_down(
+                gpui::MouseButton::Left,
+                cx.listener(move |this: &mut Chrome, _e: &gpui::MouseDownEvent, _w: &mut Window, cx: &mut Context<Chrome>| {
+                    this.select_tab(idx, cx);
+                }),
+            );
+            tab_els.push(t);
         }
 
-        let tab_strip = div()
+        let tabs = div()
             .flex()
             .flex_row()
             .items_end()
-            .gap_0p5()
-            .pl(px(72.))
+            .gap(px(4.))
+            .pl(px(80.))
             .overflow_hidden()
             .children(tab_els);
 
-        let omnibox = div()
+        // Navigation
+        let nav_btn = |label: &'static str| {
+            div()
+                .size(px(32.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(8.))
+                .text_color(rgb(TEXT_MUTED))
+                .hover(|s| s.bg(rgb(BG_HOVER)).text_color(rgb(TEXT)))
+                .cursor_pointer()
+                .child(label)
+        };
+
+        let url_bar = div()
             .flex_1()
             .flex()
             .flex_row()
             .items_center()
             .h(px(36.))
-            .mx_1()
-            .px_3()
+            .px(px(12.))
             .rounded(px(18.))
-            .bg(rgb(0x181818))
+            .bg(rgb(BG))
             .border_1()
-            .border_color(rgb(0x3f3f46))
-            .child(if secure {
-                div().text_xs().text_color(rgb(0x34d399)).px_1().child("🔒")
-            } else {
+            .border_color(rgb(BORDER))
+            .child(
                 div()
-            })
+                    .text_xs()
+                    .px(px(4.))
+                    .child(if secure { "🔒" } else { "⊞" }),
+            )
             .child(
                 div()
                     .flex_1()
+                    .px(px(8.))
                     .text_sm()
-                    .text_color(rgb(TEXT))
+                    .text_color(rgb(if secure { TEXT_URL } else { TEXT }))
                     .overflow_hidden()
-                    .child(self.omnibox_text.clone()),
+                    .child(self.url_text.clone()),
             );
 
-        let content = div().flex_1().w_full().bg(rgb(CONTENT_BG)).child(
-            div()
-                .flex_1()
-                .flex()
-                .flex_col()
-                .items_center()
-                .justify_center()
-                .gap_3()
-                .child(div().text_lg().text_color(rgb(TEXT)).child("RV8"))
-                .child(
-                    div()
-                        .text_sm()
-                        .text_color(rgb(MUTED))
-                        .child("Build with --features chrome,servo-render for embedded viewport"),
-                )
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(rgb(0x52525b))
-                        .child("chrome-shell mode — tabs & navigation only"),
-                ),
-        );
+        let toolbar = div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap(px(6.))
+            .px(px(12.))
+            .py(px(8.))
+            .min_h(px(48.))
+            .bg(rgb(TOOLBAR))
+            .border_b_1()
+            .border_color(rgb(BORDER))
+            .child(nav_btn("◀"))
+            .child(nav_btn("▶"))
+            .child(nav_btn("⟳"))
+            .child(url_bar)
+            .child(
+                div()
+                    .size(px(28.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(6.))
+                    .text_color(rgb(TEXT_MUTED))
+                    .hover(|s| s.bg(rgb(BG_HOVER)).text_color(rgb(TEXT)))
+                    .cursor_pointer()
+                    .child("+"),
+            );
+
+        let content = div().flex_1().w_full().bg(rgb(TAB_BG));
 
         div()
+            .id("root")
             .size_full()
             .flex()
             .flex_col()
-            .bg(rgb(CHROME_BG))
-            .on_action(cx.listener(Self::new_tab))
-            .on_action(cx.listener(Self::close_tab))
-            .on_action(cx.listener(Self::go_back))
-            .on_action(cx.listener(Self::go_forward))
-            .on_action(cx.listener(Self::reload))
-            .on_action(cx.listener(Self::focus_omnibox))
-            .child(tab_strip)
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_1p5()
-                    .px_3()
-                    .py_2()
-                    .min_h(px(44.))
-                    .bg(rgb(0x171717))
-                    .border_b_1()
-                    .border_color(rgb(0x27272a))
-                    .child(nav_icon("‹"))
-                    .child(nav_icon("›"))
-                    .child(nav_icon("↻"))
-                    .child(omnibox),
-            )
+            .bg(rgb(BG))
+            .on_action(cx.listener(Self::do_new_tab))
+            .on_action(cx.listener(Self::do_close_tab))
+            .on_action(cx.listener(Self::nav))
+            .on_action(cx.listener(Self::nav_fwd))
+            .on_action(cx.listener(Self::do_reload))
+            .on_action(cx.listener(Self::do_focus))
+            .child(tabs)
+            .child(toolbar)
             .child(content)
     }
-}
-
-fn nav_icon(label: &'static str) -> impl IntoElement {
-    div()
-        .size(px(32.))
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded(px(8.))
-        .text_color(rgb(TEXT))
-        .hover(|s| s.bg(rgb(0x242424)))
-        .child(label)
 }
 
 fn bind_keys(cx: &mut gpui::App) {
     cx.bind_keys([
         KeyBinding::new("cmd-t", NewTab, None),
         KeyBinding::new("cmd-w", CloseTab, None),
-        KeyBinding::new("cmd-l", FocusOmnibox, None),
+        KeyBinding::new("cmd-l", FocusUrl, None),
         KeyBinding::new("cmd-r", Reload, None),
         KeyBinding::new("cmd-[", GoBack, None),
         KeyBinding::new("cmd-]", GoForward, None),
@@ -331,11 +315,11 @@ fn main() {
     gpui::Application::new().run(move |cx: &mut gpui::App| {
         bind_keys(cx);
 
-        let opts = gpui::WindowOptions {
-            window_bounds: Some(gpui::WindowBounds::Windowed(bounds(
-                point(px(64.), px(48.)),
-                size(px(1280.), px(840.)),
-            ))),
+        let opts = WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(Bounds {
+                origin: point(px(64.), px(48.)),
+                size: size(px(1280.), px(840.)),
+            })),
             titlebar: Some(gpui::TitlebarOptions {
                 title: None,
                 appears_transparent: true,
@@ -364,7 +348,7 @@ fn main() {
             tabbing_identifier: None,
         };
 
-        cx.open_window(opts, |window, cx| cx.new(|cx| ChromeView::new(window, cx)))
+        cx.open_window(opts, |_w, cx| cx.new(|_cx| Chrome::new()))
             .unwrap();
     });
 }

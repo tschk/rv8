@@ -259,7 +259,32 @@ impl ServoRenderer {
             .unwrap_or_else(|| String::new())
     }
 
+    /// Evaluate JavaScript and return the result as a string.
+    /// Scripts run in Servo's default evaluation scope (may lack window globals).
     pub fn evaluate_script_sync(&mut self, script: &str) -> Result<String, String> {
+        self.evaluate_raw(script)
+    }
+
+    /// Evaluate JavaScript in the page's window scope by resolving globals
+    /// from `globalThis`. This fixes `typeof document`, `window`, `navigator`, `fetch`
+    /// returning `undefined` in Servo's default evaluation scope.
+    pub fn evaluate_in_page_scope(&mut self, script: &str) -> Result<String, String> {
+        // ponytail: assign globals from globalThis to local vars so bare `document`,
+        // `window`, `navigator`, `fetch` resolve. Fallback to raw if wrapper fails.
+        let wrapped = format!(
+            "(function(){{var w=globalThis,d=w.document,l=w.location,n=w.navigator,f=w.fetch;return eval({});}}).call(globalThis)",
+            serde_json::to_string(script).unwrap_or_else(|_| format!("{:?}", script))
+        );
+        match self.evaluate_raw(&wrapped) {
+            Ok(v) => Ok(v),
+            Err(e) => {
+                log::warn!("page-scope eval fallback to raw: {e}");
+                self.evaluate_raw(script)
+            }
+        }
+    }
+
+    fn evaluate_raw(&mut self, script: &str) -> Result<String, String> {
         use std::sync::mpsc;
 
         let (tx, rx) = mpsc::channel();
@@ -492,8 +517,26 @@ mod tests {
                 Err(e) => println!("  [{label}] {key} = ERR: {e}"),
             }
         }
-        // Phase 2: raw value tests — what does Servo actually return?
-        // These mirror google_com_renders_homepage to isolate state issues
+        // Phase 2: test new evaluate_in_page_scope fix
+        println!("  [{label}] --- evaluate_in_page_scope ---");
+        let fixed = [
+            ("document.title", "doc_title_fixed"),
+            ("typeof document", "typeof_doc_fixed"),
+            ("typeof window", "typeof_win_fixed"),
+            ("typeof navigator", "typeof_nav_fixed"),
+            ("typeof location", "typeof_loc_fixed"),
+            ("typeof fetch", "typeof_fetch_fixed"),
+            ("typeof globalThis", "typeof_global_fixed"),
+            ("document.URL.substring(0, 50)", "doc_url_fixed"),
+        ];
+        for (script, key) in &fixed {
+            match renderer.evaluate_in_page_scope(script) {
+                Ok(v) => println!("  [{label}] {key} = {v}"),
+                Err(e) => println!("  [{label}] {key} = ERR: {e}"),
+            }
+        }
+
+        // Phase 3: raw value tests — what does Servo actually return?
         let dom_checks = [
             ("document.title", "doc_title_raw"),
             ("typeof document", "typeof_doc"),

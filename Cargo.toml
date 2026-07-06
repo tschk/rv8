@@ -96,7 +96,7 @@ gpu-compositing = []
 hardware-acceleration = []
 servo-render = ["dep:servo", "dep:dpi", "dep:rustls", "dep:servo-embedder-traits"]
 rv8-v8 = ["dep:rusty_v8"]
-chrome = ["dep:gpui", "dep:crepuscularity-gpui"]
+chrome = ["dep:gpui", "dep:crepuscularity-gpui", "crepuscularity-gpui/symbols"]
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["async_tokio"] }
