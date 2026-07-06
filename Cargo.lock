@@ -7025,6 +7025,7 @@ dependencies = [
  "gpui",
  "html5ever 0.29.1",
  "http 1.4.2",
+ "image",
  "ipc-channel 0.18.3",
  "log",
  "nix 0.27.1",

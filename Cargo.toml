@@ -69,6 +69,7 @@ sysinfo = "0.30"
 nix = { version = "0.27", features = ["sched"] }
 num_cpus = "1.16"
 dirs = "6"
+image = { version = "0.25", default-features = false, features = [] }
 
 # Servo layout/CSS/WebRender (rv8-owned engine checkout)
 servo = { path = "third_party/servo/components/servo", default-features = false, features = ["baked-in-resources", "clipboard", "soliloquy_v8"], optional = true }
