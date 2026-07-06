@@ -6,14 +6,14 @@
 use core_video::pixel_buffer::CVPixelBuffer;
 use crepuscularity_gpui::prelude::*;
 use crepuscularity_gpui::Icon;
+#[cfg(all(target_os = "macos", feature = "servo-render"))]
+use gpui::surface;
 use gpui::{
     actions, point, px, rgb, size, AnyElement, Bounds, KeyBinding, Render, Window, WindowBounds,
     WindowOptions,
 };
 #[cfg(feature = "servo-render")]
 use gpui::{img, RenderImage};
-#[cfg(all(target_os = "macos", feature = "servo-render"))]
-use gpui::{surface, FocusHandle};
 #[cfg(feature = "servo-render")]
 use image::RgbaImage;
 #[cfg(feature = "servo-render")]
@@ -85,8 +85,6 @@ struct Chrome {
     next_id: u64,
     url_text: String,
     url_edit: Option<String>,
-    #[cfg(all(target_os = "macos", feature = "servo-render"))]
-    content_focus: FocusHandle,
     #[cfg(feature = "servo-render")]
     servo_host: Option<ServoHost>,
 }
@@ -100,8 +98,6 @@ impl Chrome {
             next_id: 2,
             url_text: url,
             url_edit: None,
-            #[cfg(all(target_os = "macos", feature = "servo-render"))]
-            content_focus: _cx.focus_handle(),
             #[cfg(feature = "servo-render")]
             servo_host: None,
         }
@@ -479,7 +475,7 @@ impl Render for Chrome {
                          event: &gpui::MouseDownEvent,
                          window: &mut Window,
                          cx: &mut Context<Chrome>| {
-                            window.focus(&this.content_focus);
+                            this.cancel_url_edit(cx);
                             let (x, y) = this.content_to_viewport(
                                 event.position.x.into(),
                                 event.position.y.into(),
@@ -503,22 +499,12 @@ impl Render for Chrome {
                 ))
                 .id("content");
             if let Some(ref content_surface) = content_surface {
-                container = container
-                    .child(
-                        surface(content_surface.clone())
-                            .w_full()
-                            .h_full()
-                            .object_fit(gpui::ObjectFit::Contain),
-                    )
-                    .track_focus(&self.content_focus)
-                    .on_key_down(cx.listener(
-                        |this: &mut Chrome,
-                         event: &gpui::KeyDownEvent,
-                         _: &mut Window,
-                         cx: &mut Context<Chrome>| {
-                            this.handle_key_event(event, cx);
-                        },
-                    ));
+                container = container.child(
+                    surface(content_surface.clone())
+                        .w_full()
+                        .h_full()
+                        .object_fit(gpui::ObjectFit::Contain),
+                );
             } else if let Some(ref render_image) = frame_img {
                 container = container.child(
                     img(render_image.clone())
@@ -563,6 +549,7 @@ impl Render for Chrome {
                          event: &gpui::MouseDownEvent,
                          window: &mut Window,
                          cx: &mut Context<Chrome>| {
+                            this.cancel_url_edit(cx);
                             let (x, y) = this.content_to_viewport(
                                 event.position.x.into(),
                                 event.position.y.into(),
@@ -678,29 +665,31 @@ impl Render for Chrome {
                  event: &gpui::KeyDownEvent,
                  _: &mut Window,
                  cx: &mut Context<Chrome>| {
-                    if this.url_edit.is_none() {
-                        return;
-                    }
-                    let key = event.keystroke.key.as_str();
-                    if key == "backspace" || key == "delete" {
-                        let mut text = this.url_edit.clone().unwrap_or_default();
-                        if !text.is_empty() {
-                            text.pop();
-                        }
-                        this.set_url_edit(text, cx);
-                    } else if key == "enter" || key == "return" {
-                        this.commit_url_edit(cx);
-                    } else if key == "escape" {
-                        this.cancel_url_edit(cx);
-                    } else if let Some(ch) = event.keystroke.key_char.as_ref() {
-                        if ch.len() == 1
-                            && !event.keystroke.modifiers.control
-                            && !event.keystroke.modifiers.platform
-                        {
+                    if this.url_edit.is_some() {
+                        let key = event.keystroke.key.as_str();
+                        if key == "backspace" || key == "delete" {
                             let mut text = this.url_edit.clone().unwrap_or_default();
-                            text.push_str(ch);
+                            if !text.is_empty() {
+                                text.pop();
+                            }
                             this.set_url_edit(text, cx);
+                        } else if key == "enter" || key == "return" {
+                            this.commit_url_edit(cx);
+                        } else if key == "escape" {
+                            this.cancel_url_edit(cx);
+                        } else if let Some(ch) = event.keystroke.key_char.as_ref() {
+                            if ch.len() == 1
+                                && !event.keystroke.modifiers.control
+                                && !event.keystroke.modifiers.platform
+                            {
+                                let mut text = this.url_edit.clone().unwrap_or_default();
+                                text.push_str(ch);
+                                this.set_url_edit(text, cx);
+                            }
                         }
+                    } else {
+                        #[cfg(feature = "servo-render")]
+                        this.handle_key_event(event, cx);
                     }
                 },
             ))
