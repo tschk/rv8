@@ -8,6 +8,8 @@ use gpui::{
     actions, point, px, rgb, size, AnyElement, Bounds, KeyBinding, Render, Window,
     WindowBounds, WindowOptions,
 };
+use std::cell::RefCell;
+use std::rc::Rc;
 
 #[cfg(feature = "servo-render")]
 use rv8::servo_embed::ServoHost;
@@ -16,33 +18,26 @@ use rv8::servo_embed::ServoHost;
 const BG: u32 = 0x000000;
 const TOOLBAR_BG: u32 = 0x1c1c1e;
 const SIDEBAR_BG: u32 = 0x000000;
-const HOVER: u32 = 0x2a2a2a;
+const HOVER: u32 = 0x222222;
 const BORDER: u32 = 0x38383a;
 const TEXT: u32 = 0xe4e4e7;
 const TEXT_MUTED: u32 = 0x8e8e93;
 const TEXT_URL: u32 = 0x34d399;
-const TAB_BG: u32 = 0x000000;
 const ADDR_BG: u32 = 0x222224;
-const ADDR_RADIUS: f32 = 7.0;
 
 // pocb metrics
 const TOPBAR_H: f32 = 40.0;
 const BTN_SIZE: f32 = 28.0;
-const BTN_RADIUS: f32 = 6.0;
 const ADDR_H: f32 = 28.0;
 const SIDEBAR_W: f32 = 240.0;
-const TRAFFIC_W: f32 = 72.0;
+const TRAFFIC_H: f32 = 52.0;
 
 actions!(
     rv8_chrome,
     [NewTab, CloseTab, GoBack, GoForward, Reload, FocusUrl, ToggleSidebar]
 );
 
-
-
-// ── Tab ──
 struct Tab {
-    #[allow(dead_code)]
     id: u64,
     url: String,
     title: String,
@@ -50,14 +45,9 @@ struct Tab {
 
 impl Tab {
     fn new(id: u64, url: &str) -> Self {
-        Self {
-            id,
-            url: url.to_string(),
-            title: Self::disp_title(url),
-        }
+        Self { id, url: url.to_string(), title: Self::title_from(url) }
     }
-
-    fn disp_title(url: &str) -> String {
+    fn title_from(url: &str) -> String {
         url.trim()
             .strip_prefix("https://")
             .or_else(|| url.trim().strip_prefix("http://"))
@@ -69,15 +59,21 @@ impl Tab {
     }
 }
 
-// ── Chrome state ──
 struct Chrome {
     tabs: Vec<Tab>,
     active: usize,
     next_id: u64,
     url_text: String,
-    sidebar_visible: bool,
     #[cfg(feature = "servo-render")]
     servo_host: Option<ServoHost>,
+    #[cfg(feature = "servo-render")]
+    frame: Rc<RefCell<Option<RenderFrame>>>,
+}
+
+#[cfg(feature = "servo-render")]
+struct RenderFrame {
+    _width: u32,
+    _height: u32,
 }
 
 impl Chrome {
@@ -87,59 +83,51 @@ impl Chrome {
             tabs: vec![Tab::new(1, &url)],
             active: 0,
             next_id: 2,
-            url_text: url.clone(),
-            sidebar_visible: false,
+            url_text: url,
             #[cfg(feature = "servo-render")]
             servo_host: None,
+            #[cfg(feature = "servo-render")]
+            frame: Rc::new(RefCell::new(None)),
         }
     }
-
-    fn active_tab_mut(&mut self) -> Option<&mut Tab> { self.tabs.get_mut(self.active) }
 
     fn navigate_to(&mut self, raw: &str) {
         let url = normalize_url(raw);
         self.url_text = url.clone();
-        if let Some(tab) = self.active_tab_mut() {
+        if let Some(tab) = self.tabs.get_mut(self.active) {
             tab.url = url.clone();
-            tab.title = Tab::disp_title(&url);
+            tab.title = Tab::title_from(&url);
         }
         #[cfg(feature = "servo-render")]
+        self.servo_render(&url);
+    }
+
+    #[cfg(feature = "servo-render")]
+    fn servo_render(&mut self, url: &str) {
+        let frame = self.frame.clone();
         if self.servo_host.is_none() {
-            if let Ok(host) = ServoHost::launch(1280, 800) {
-                self.servo_host = Some(host);
-            }
+            self.servo_host = ServoHost::launch(1280, 800).ok();
         }
-        #[cfg(feature = "servo-render")]
         if let Some(ref host) = self.servo_host {
-            match host.navigate(&url) {
+            match host.navigate(url) {
                 Ok(result) => {
-                    if let Some(tab) = self.active_tab_mut() {
+                    if let Some(ref mut tab) = self.tabs.get_mut(self.active) {
                         if !result.title.is_empty() {
                             tab.title = result.title;
                         }
                     }
+                    // ponytail: frame RGBA stored but gpui RenderImage not wired yet
+                    if result.frame.is_some() {
+                        *frame.borrow_mut() = Some(RenderFrame { _width: 1280, _height: 800 });
+                    }
                 }
-                Err(e) => log::error!("ServoHost navigate: {e}"),
+                Err(e) => log::error!("ServoHost: {e}"),
             }
         }
     }
 
-    fn do_nav(&mut self, _: &GoBack, _: &mut Window, _: &mut Context<Self>) {
-        // ponytail: Servo history via WebView::go_back — needs renderer ref
-    }
-    fn do_fwd(&mut self, _: &GoForward, _: &mut Window, _: &mut Context<Self>) {
-        // ponytail: WebView::go_forward
-    }
-    fn do_reload(&mut self, _: &Reload, _: &mut Window, cx: &mut Context<Self>) {
-        let url = self.url_text.clone();
-        self.navigate_to(&url);
-        cx.notify();
-    }
-    fn do_focus(&mut self, _: &FocusUrl, _: &mut Window, _: &mut Context<Self>) {}
-
     fn do_new_tab(&mut self, _: &NewTab, _: &mut Window, cx: &mut Context<Self>) {
-        let id = self.next_id;
-        self.next_id += 1;
+        let id = self.next_id; self.next_id += 1;
         let url = "https://google.com".to_string();
         self.tabs.push(Tab::new(id, &url));
         self.active = self.tabs.len() - 1;
@@ -159,50 +147,38 @@ impl Chrome {
         if idx >= self.tabs.len() || idx == self.active { return; }
         self.active = idx;
         self.url_text = self.tabs[idx].url.clone();
+        let url = self.url_text.clone();
+        #[cfg(feature = "servo-render")]
+        self.servo_render(&url);
         cx.notify();
     }
 
-    fn toggle_sidebar(&mut self, _: &ToggleSidebar, _: &mut Window, cx: &mut Context<Self>) {
-        self.sidebar_visible = !self.sidebar_visible;
+    fn do_reload(&mut self, _: &Reload, _: &mut Window, cx: &mut Context<Self>) {
+        let url = self.url_text.clone();
+        self.navigate_to(&url);
         cx.notify();
     }
+
+    fn do_nav(&mut self, _: &GoBack, _: &mut Window, _: &mut Context<Self>) {}
+    fn do_fwd(&mut self, _: &GoForward, _: &mut Window, _: &mut Context<Self>) {}
+    fn do_focus(&mut self, _: &FocusUrl, _: &mut Window, _: &mut Context<Self>) {}
+    fn toggle_sidebar(&mut self, _: &ToggleSidebar, _: &mut Window, _: &mut Context<Self>) {}
 }
 
 fn normalize_url(input: &str) -> String {
     let t = input.trim();
     if t.is_empty() { return "about:blank".into(); }
-    if t.contains("://") || t.starts_with("about:") || t.starts_with("data:") {
-        return t.to_string();
-    }
-    if t.contains('.') && !t.contains(' ') {
-        format!("https://{t}")
-    } else {
-        format!("https://duckduckgo.com/?q={}", t.replace(' ', "+"))
-    }
+    if t.contains("://") || t.starts_with("about:") || t.starts_with("data:") { return t.to_string(); }
+    if t.contains('.') && !t.contains(' ') { format!("https://{t}") }
+    else { format!("https://duckduckgo.com/?q={}", t.replace(' ', "+")) }
 }
 
-// ── Nav button builder ──
-fn mk_btn(name: &'static str) -> impl IntoElement {
-    div()
-        .size(px(BTN_SIZE))
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded(px(BTN_RADIUS))
-        .text_color(rgb(TEXT_MUTED))
-        .hover(|s| s.bg(rgb(HOVER)).text_color(rgb(TEXT)))
-        .cursor_pointer()
-        .child(Icon::new(name).size(px(16.)))
+fn icon_muted() -> Icon {
+    Icon::new("globe").size(px(16.)).text_color(0x8e8e93)
 }
 
-fn mk_url(dsp: &str) -> impl IntoElement {
-    div()
-        .flex_1()
-        .px(px(8.))
-        .text_sm()
-        .text_color(rgb(if dsp.starts_with("https://") { TEXT_URL } else { TEXT }))
-        .overflow_hidden()
-        .child(dsp.to_string())
+fn make_icon(name: &'static str, color: u32) -> Icon {
+    Icon::new(name).size(px(16.)).text_color(color)
 }
 
 // ── Render ──
@@ -210,33 +186,29 @@ impl Render for Chrome {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let secure = self.url_text.starts_with("https://");
 
-        // ── Tab strip (pocb sidebar tree — simplified to horizontal for now) ──
-        let mut tab_els: Vec<AnyElement> = Vec::new();
+        // ── Sidebar with vertical tabs ──
+        let mut tab_rows: Vec<AnyElement> = Vec::new();
         for (i, tab) in self.tabs.iter().enumerate() {
             let sel = i == self.active;
             let idx = i;
-
-            let el = div()
+            let row = div()
                 .flex()
                 .flex_row()
                 .items_center()
-                .gap(px(4.))
-                .max_w(px(160.))
-                .flex_shrink_0()
-                .px(px(8.))
+                .gap(px(8.))
+                .w_full()
+                .px(px(12.))
                 .py(px(6.))
-                .rounded_t(px(7.))
-                .bg(rgb(if sel { TAB_BG } else { BG }))
-                .border_t_1()
-                .border_x_1()
-                .border_color(rgb(if sel { BORDER } else { BG }))
+                .rounded(px(6.))
+                .bg(rgb(if sel { HOVER } else { SIDEBAR_BG }))
                 .cursor_pointer()
-                .hover(|s| s.bg(rgb(if sel { TAB_BG } else { HOVER })))
+                .hover(|s| s.bg(rgb(HOVER)))
                 .on_mouse_down(gpui::MouseButton::Left, cx.listener(
                     move |this: &mut Chrome, _: &gpui::MouseDownEvent, _: &mut Window, cx: &mut Context<Chrome>| {
                         this.select_tab(idx, cx);
                     },
                 ))
+                .child(make_icon("globe", 0x8e8e93))
                 .child(
                     div()
                         .flex_1()
@@ -247,20 +219,46 @@ impl Render for Chrome {
                         .child(tab.title.clone()),
                 )
                 .into_any_element();
-
-            tab_els.push(el);
+            tab_rows.push(row);
         }
 
-        let tab_strip = div()
+        let sidebar = div()
+            .id("sidebar")
             .flex()
-            .flex_row()
-            .items_end()
-            .gap(px(4.))
-            .pl(px(TRAFFIC_W))
-            .overflow_hidden()
-            .children(tab_els);
+            .flex_col()
+            .w(px(SIDEBAR_W))
+            .min_w(px(SIDEBAR_W))
+            .bg(rgb(SIDEBAR_BG))
+            .border_r_1()
+            .border_color(rgb(BORDER))
+            .child(
+                // Traffic light clearance + tabs
+                div()
+                    .flex_1()
+                    .flex()
+                    .flex_col()
+                    .pt(px(TRAFFIC_H))
+                    .gap(px(2.))
+                    .px(px(4.))
+                    .children(tab_rows),
+            )
+            .child(
+                // New tab button at bottom
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(px(8.))
+                    .px(px(16.))
+                    .py(px(10.))
+                    .border_t_1()
+                    .border_color(rgb(BORDER))
+                    .cursor_pointer()
+                    .child(make_icon("plus.circle", 0x8e8e93))
+                    .child(div().text_sm().text_color(rgb(TEXT_MUTED)).child("New Tab")),
+            );
 
-        // ── Topbar (pocb ChromeBar, 40px) ──
+        // ── Topbar ──
         let topbar = div()
             .id("topbar")
             .flex()
@@ -271,68 +269,64 @@ impl Render for Chrome {
             .px(px(8.))
             .py(px(4.))
             .bg(rgb(TOOLBAR_BG))
-.child(mk_btn("sidebar.left"))
-            .child(mk_btn("chevron.backward"))
-            .child(mk_btn("chevron.forward"))
-            .child(mk_btn("arrow.clockwise"))
+            .child(div().size(px(BTN_SIZE)).flex().items_center().justify_center().rounded(px(6.)).hover(|s| s.bg(rgb(HOVER))).cursor_pointer().child(make_icon("chevron.backward", 0x8e8e93)))
+            .child(div().size(px(BTN_SIZE)).flex().items_center().justify_center().rounded(px(6.)).hover(|s| s.bg(rgb(HOVER))).cursor_pointer().child(make_icon("chevron.forward", 0x8e8e93)))
+            .child(div().size(px(BTN_SIZE)).flex().items_center().justify_center().rounded(px(6.)).hover(|s| s.bg(rgb(HOVER))).cursor_pointer().child(make_icon("arrow.clockwise", 0x8e8e93)))
             .child(
-                // AddrPill
                 div()
                     .flex_1()
                     .flex()
                     .flex_row()
                     .items_center()
                     .h(px(ADDR_H))
-                    .px(px(8.))
+                    .px(px(10.))
                     .gap(px(6.))
-                    .rounded(px(ADDR_RADIUS))
+                    .rounded(px(7.))
                     .bg(rgb(ADDR_BG))
                     .border_1()
                     .border_color(rgb(BORDER))
-                    .child(Icon::new(if secure { "lock.fill" } else { "globe" }).size(px(12.)))
-                    .child(mk_url(&self.url_text)),
+                    .child(if secure { make_icon("lock.fill", 0x34d399) } else { make_icon("globe", 0x8e8e93) })
+                    .child(
+                        div()
+                            .flex_1()
+                            .text_sm()
+                            .text_color(rgb(if secure { TEXT_URL } else { TEXT }))
+                            .overflow_hidden()
+                            .child(self.url_text.clone()),
+                    ),
             )
-            .child(Icon::new("plus").size(px(14.)));
+            .child(div().size(px(BTN_SIZE)).flex().items_center().justify_center().rounded(px(6.)).hover(|s| s.bg(rgb(HOVER))).cursor_pointer().child(make_icon("plus", 0x8e8e93)));
 
-        // ── Web content area ──
+        // ── Content area ──
         let content = div()
             .flex_1()
             .w_full()
-            .bg(rgb(TAB_BG));
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(rgb(BG))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .gap(px(12.))
+                    .child(make_icon("globe", 0x333333).size(px(48.)))
+                    .child(div().text_lg().text_color(rgb(0x333333)).child("RV8"))
+                    .child(div().text_sm().text_color(rgb(0x222222)).child(
+                        if cfg!(feature = "servo-render") {
+                            "Servo renderer ready"
+                        } else {
+                            "Build with --features chrome,servo-render"
+                        })),
+            );
 
-        // ── Sidebar (pocb style, hidden by default) ──
-        let sidebar = if self.sidebar_visible {
-            div()
-                .id("sidebar")
-                .flex()
-                .flex_col()
-                .w(px(SIDEBAR_W))
-                .bg(rgb(SIDEBAR_BG))
-                .border_r_1()
-                .border_color(rgb(BORDER))
-                .child(
-                    div()
-                        .flex_1()
-                        .px(px(12.))
-                        .pt(px(52.)) // traffic light clearance
-                        .child(
-                            div()
-                                .text_sm()
-                                .text_color(rgb(TEXT_MUTED))
-                                .child("Tabs"),
-                        ),
-                )
-                .into_any_element()
-        } else {
-            div().into_any_element()
-        };
-
-        // ── Root layout ──
+        // ── Root ──
         div()
             .id("root")
             .size_full()
             .flex()
-            .flex_col()
+            .flex_row()
             .bg(rgb(BG))
             .on_action(cx.listener(Self::do_new_tab))
             .on_action(cx.listener(Self::do_close_tab))
@@ -341,28 +335,15 @@ impl Render for Chrome {
             .on_action(cx.listener(Self::do_reload))
             .on_action(cx.listener(Self::do_focus))
             .on_action(cx.listener(Self::toggle_sidebar))
-            .child(tab_strip)
+            .child(sidebar)
             .child(
                 div()
                     .flex_1()
                     .flex()
-                    .flex_row()
-                    .overflow_hidden()
-                    .child(sidebar)
-                    .child(
-                        div()
-                            .flex_1()
-                            .flex()
-                            .flex_col()
-                            .child(topbar)
-                            .child(
-                                // 1px separator (pocb TopSeparator)
-                                div()
-                                    .h(px(1.))
-                                    .bg(rgb(BORDER)),
-                            )
-                            .child(content),
-                    ),
+                    .flex_col()
+                    .child(topbar)
+                    .child(div().h(px(1.)).bg(rgb(BORDER)))
+                    .child(content),
             )
     }
 }
@@ -393,7 +374,7 @@ fn main() {
                 appears_transparent: true,
                 traffic_light_position: {
                     #[cfg(target_os = "macos")]
-                    { Some(point(px(14.), px(16.))) }
+                    { Some(point(px(18.), px(18.))) }
                     #[cfg(not(target_os = "macos"))]
                     { None }
                 },
