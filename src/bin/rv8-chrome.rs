@@ -46,6 +46,8 @@ struct Tab {
     id: u64,
     url: String,
     title: String,
+    history: Vec<String>,
+    history_pos: usize,
     #[cfg(feature = "servo-render")]
     frame_img: Option<Arc<RenderImage>>,
 }
@@ -56,6 +58,8 @@ impl Tab {
             id,
             url: url.to_string(),
             title: Self::title_from(url),
+            history: vec![url.to_string()],
+            history_pos: 0,
             #[cfg(feature = "servo-render")]
             frame_img: None,
         }
@@ -152,8 +156,13 @@ impl Chrome {
         #[cfg(feature = "servo-render")]
         self.servo_render(&url);
         if let Some(tab) = self.tabs.get_mut(self.active) {
-            tab.url = url;
+            tab.url = url.clone();
             tab.title = Tab::title_from(&tab.url);
+            if tab.history.get(tab.history_pos) != Some(&url) {
+                tab.history.truncate(tab.history_pos + 1);
+                tab.history.push(url);
+                tab.history_pos = tab.history.len() - 1;
+            }
         }
     }
 
@@ -252,8 +261,41 @@ impl Chrome {
         self.navigate_to(&url);
         cx.notify();
     }
-    fn do_nav(&mut self, _: &GoBack, _: &mut Window, _: &mut Context<Self>) {}
-    fn do_fwd(&mut self, _: &GoForward, _: &mut Window, _: &mut Context<Self>) {}
+    fn do_nav(&mut self, _: &GoBack, _: &mut Window, cx: &mut Context<Self>) {
+        let url = self.tabs.get(self.active).and_then(|tab| {
+            tab.history_pos
+                .checked_sub(1)
+                .and_then(|i| tab.history.get(i).cloned())
+        });
+        if let Some(url) = url {
+            self.tabs[self.active].history_pos -= 1;
+            self.url_text.clone_from(&url);
+            #[cfg(feature = "servo-render")]
+            self.servo_render(&url);
+            if let Some(tab) = self.tabs.get_mut(self.active) {
+                tab.url = url.clone();
+                tab.title = Tab::title_from(&tab.url);
+            }
+            cx.notify();
+        }
+    }
+    fn do_fwd(&mut self, _: &GoForward, _: &mut Window, cx: &mut Context<Self>) {
+        let url = self
+            .tabs
+            .get(self.active)
+            .and_then(|tab| tab.history.get(tab.history_pos + 1).cloned());
+        if let Some(url) = url {
+            self.tabs[self.active].history_pos += 1;
+            self.url_text.clone_from(&url);
+            #[cfg(feature = "servo-render")]
+            self.servo_render(&url);
+            if let Some(tab) = self.tabs.get_mut(self.active) {
+                tab.url = url.clone();
+                tab.title = Tab::title_from(&tab.url);
+            }
+            cx.notify();
+        }
+    }
     fn do_focus(&mut self, _: &FocusUrl, _: &mut Window, cx: &mut Context<Self>) {
         self.start_url_edit(cx);
     }
@@ -578,8 +620,16 @@ impl Render for Chrome {
             .px(px(8.))
             .py(px(4.))
             .bg(rgb(TOOLBAR_BG))
-            .child(btn("chevron.backward"))
-            .child(btn("chevron.forward"))
+            .child(btn_with_action(
+                cx,
+                "chevron.backward",
+                |this, window, cx| this.do_nav(&GoBack, window, cx),
+            ))
+            .child(btn_with_action(
+                cx,
+                "chevron.forward",
+                |this, window, cx| this.do_fwd(&GoForward, window, cx),
+            ))
             .child(btn_with_action(
                 cx,
                 "arrow.clockwise",
@@ -692,18 +742,6 @@ impl Render for Chrome {
                     .child(content),
             )
     }
-}
-
-fn btn(name: &'static str) -> impl IntoElement {
-    div()
-        .size(px(BTN_SIZE))
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded(px(6.))
-        .hover(|s| s.bg(rgb(HOVER)))
-        .cursor_pointer()
-        .child(make_icon(name, TEXT_MUTED))
 }
 
 fn btn_with_action(
