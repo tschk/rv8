@@ -79,6 +79,9 @@ servo = { path = "third_party/servo/components/servo", default-features = false,
 dpi = { version = "0.1", optional = true }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "std"], optional = true }
 servo-embedder-traits = { path = "third_party/servo/components/shared/embedder", optional = true }
+keyboard-types = { version = "0.8.3", optional = true }
+euclid = { version = "0.22.14", optional = true }
+core-foundation = { version = "0.10", optional = true }
 
 # Platform-specific
 [target.'cfg(target_os = "linux")'.dependencies]
@@ -88,6 +91,12 @@ wayland-client = { version = "0.31", optional = true }
 [target.'cfg(target_os = "macos")'.dependencies]
 cocoa = "0.26"
 objc2 = "0.5"
+core-video = { version = "0.4.3", optional = true }
+io-surface = { version = "0.16", optional = true }
+objc2-core-foundation = { version = "0.3.2", default-features = false, optional = true }
+surfman = { version = "0.13.0", default-features = false, optional = true }
+gleam = { version = "0.15.1", optional = true }
+glow = { version = "0.17.0", optional = true }
 
 [features]
 # servo-render is opt-in until the Servo V8 bridge (js_stub ↔ script_bindings codegen) is synced.
@@ -98,7 +107,21 @@ x11 = ["x11rb"]
 wayland = ["wayland-client"]
 gpu-compositing = []
 hardware-acceleration = []
-servo-render = ["dep:servo", "dep:dpi", "dep:rustls", "dep:servo-embedder-traits"]
+servo-render = [
+    "dep:servo",
+    "dep:dpi",
+    "dep:rustls",
+    "dep:servo-embedder-traits",
+    "dep:keyboard-types",
+    "dep:core-video",
+    "dep:io-surface",
+    "dep:objc2-core-foundation",
+    "dep:surfman",
+    "dep:gleam",
+    "dep:glow",
+    "dep:euclid",
+    "dep:core-foundation",
+]
 rv8-v8 = ["dep:rusty_v8"]
 chrome = ["dep:gpui", "dep:crepuscularity-gpui", "crepuscularity-gpui/symbols"]
 

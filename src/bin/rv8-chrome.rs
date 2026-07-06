@@ -2,6 +2,8 @@
 //! Build: cargo run --features chrome,servo-render --bin rv8-chrome
 //! Shell: cargo run --features chrome --bin rv8-chrome
 
+#[cfg(all(target_os = "macos", feature = "servo-render"))]
+use core_video::pixel_buffer::CVPixelBuffer;
 use crepuscularity_gpui::prelude::*;
 use crepuscularity_gpui::Icon;
 use gpui::{
@@ -10,10 +12,14 @@ use gpui::{
 };
 #[cfg(feature = "servo-render")]
 use gpui::{img, RenderImage};
+#[cfg(all(target_os = "macos", feature = "servo-render"))]
+use gpui::{surface, FocusHandle};
 #[cfg(feature = "servo-render")]
 use image::RgbaImage;
 #[cfg(feature = "servo-render")]
 use std::sync::Arc;
+#[cfg(all(target_os = "macos", feature = "servo-render"))]
+use std::time::Duration;
 
 #[cfg(feature = "servo-render")]
 use rv8::servo_embed::ServoHost;
@@ -43,6 +49,8 @@ struct Tab {
     id: u64,
     url: String,
     title: String,
+    #[cfg(all(target_os = "macos", feature = "servo-render"))]
+    surface: Option<CVPixelBuffer>,
     #[cfg(feature = "servo-render")]
     frame_img: Option<Arc<RenderImage>>,
 }
@@ -53,6 +61,8 @@ impl Tab {
             id,
             url: url.to_string(),
             title: Self::title_from(url),
+            #[cfg(all(target_os = "macos", feature = "servo-render"))]
+            surface: None,
             #[cfg(feature = "servo-render")]
             frame_img: None,
         }
@@ -75,12 +85,14 @@ struct Chrome {
     next_id: u64,
     url_text: String,
     url_edit: Option<String>,
+    #[cfg(all(target_os = "macos", feature = "servo-render"))]
+    content_focus: FocusHandle,
     #[cfg(feature = "servo-render")]
     servo_host: Option<ServoHost>,
 }
 
 impl Chrome {
-    fn new() -> Self {
+    fn new(_cx: &mut Context<Self>) -> Self {
         let url = "https://google.com".to_string();
         Self {
             tabs: vec![Tab::new(1, &url)],
@@ -88,6 +100,8 @@ impl Chrome {
             next_id: 2,
             url_text: url,
             url_edit: None,
+            #[cfg(all(target_os = "macos", feature = "servo-render"))]
+            content_focus: _cx.focus_handle(),
             #[cfg(feature = "servo-render")]
             servo_host: None,
         }
@@ -96,6 +110,44 @@ impl Chrome {
     fn init(&mut self, cx: &mut Context<Self>) {
         let url = self.url_text.clone();
         self.navigate_to(&url);
+        #[cfg(all(target_os = "macos", feature = "servo-render"))]
+        self.start_render_loop(cx);
+        cx.notify();
+    }
+
+    #[cfg(all(target_os = "macos", feature = "servo-render"))]
+    fn start_render_loop(&self, cx: &mut Context<Self>) {
+        cx.spawn(|this: gpui::WeakEntity<Chrome>, cx: &mut gpui::AsyncApp| {
+            let mut cx = cx.clone();
+            async move {
+                loop {
+                    cx.background_executor()
+                        .timer(Duration::from_millis(16))
+                        .await;
+                    if let Some(entity) = this.upgrade() {
+                        entity
+                            .update(&mut cx, |chrome, cx| chrome.update_surface(cx))
+                            .ok();
+                    }
+                }
+            }
+        })
+        .detach();
+    }
+
+    #[cfg(all(target_os = "macos", feature = "servo-render"))]
+    fn update_surface(&mut self, cx: &mut Context<Self>) {
+        if let Some(ref host) = self.servo_host {
+            match host.current_surface() {
+                Ok(Some(surface)) => {
+                    if let Some(tab) = self.tabs.get_mut(self.active) {
+                        tab.surface = Some(surface);
+                    }
+                }
+                Ok(None) => {}
+                Err(e) => log::error!("ServoHost current_surface: {e}"),
+            }
+        }
         cx.notify();
     }
 
@@ -247,6 +299,40 @@ impl Chrome {
             cx.notify();
         }
     }
+
+    #[cfg(feature = "servo-render")]
+    fn handle_key_event(&mut self, event: &gpui::KeyDownEvent, cx: &mut Context<Self>) {
+        use keyboard_types::{Key, KeyState, Modifiers};
+        use std::str::FromStr;
+        if let Some(ref host) = self.servo_host {
+            let key = Key::from_str(&event.keystroke.key)
+                .unwrap_or_else(|_| Key::Character(event.keystroke.key.clone()));
+            let mut modifiers = Modifiers::empty();
+            if event.keystroke.modifiers.control {
+                modifiers |= Modifiers::CONTROL;
+            }
+            if event.keystroke.modifiers.alt {
+                modifiers |= Modifiers::ALT;
+            }
+            if event.keystroke.modifiers.shift {
+                modifiers |= Modifiers::SHIFT;
+            }
+            if event.keystroke.modifiers.platform {
+                modifiers |= Modifiers::META;
+            }
+            if event.keystroke.modifiers.function {
+                modifiers |= Modifiers::FN;
+            }
+            let keyboard_event = keyboard_types::KeyboardEvent {
+                state: KeyState::Down,
+                key,
+                modifiers,
+                ..Default::default()
+            };
+            host.handle_key_event(keyboard_event);
+            cx.notify();
+        }
+    }
 }
 
 fn normalize_url(input: &str) -> String {
@@ -361,9 +447,90 @@ impl Render for Chrome {
             );
 
         // ── Content ──
+        #[cfg(all(target_os = "macos", feature = "servo-render"))]
+        let content_surface = self.tabs.get(self.active).and_then(|t| t.surface.clone());
         #[cfg(feature = "servo-render")]
         let frame_img = self.tabs.get(self.active).and_then(|t| t.frame_img.clone());
-        #[cfg(feature = "servo-render")]
+
+        #[cfg(all(target_os = "macos", feature = "servo-render"))]
+        let content: AnyElement = {
+            let mut container = div()
+                .flex_1()
+                .w_full()
+                .overflow_hidden()
+                .bg(rgb(BG))
+                .on_mouse_move(cx.listener(
+                    |this: &mut Chrome,
+                     event: &gpui::MouseMoveEvent,
+                     window: &mut Window,
+                     cx: &mut Context<Chrome>| {
+                        let (x, y) = this.content_to_viewport(
+                            event.position.x.into(),
+                            event.position.y.into(),
+                            window,
+                        );
+                        this.handle_mouse_move(x, y, cx);
+                    },
+                ))
+                .on_mouse_down(
+                    gpui::MouseButton::Left,
+                    cx.listener(
+                        |this: &mut Chrome,
+                         event: &gpui::MouseDownEvent,
+                         window: &mut Window,
+                         cx: &mut Context<Chrome>| {
+                            window.focus(&this.content_focus);
+                            let (x, y) = this.content_to_viewport(
+                                event.position.x.into(),
+                                event.position.y.into(),
+                                window,
+                            );
+                            this.handle_mouse_click(x, y, cx);
+                        },
+                    ),
+                )
+                .on_scroll_wheel(cx.listener(
+                    |this: &mut Chrome,
+                     event: &gpui::ScrollWheelEvent,
+                     _: &mut Window,
+                     cx: &mut Context<Chrome>| {
+                        let (dx, dy) = match event.delta {
+                            gpui::ScrollDelta::Pixels(p) => (p.x.into(), p.y.into()),
+                            gpui::ScrollDelta::Lines(p) => (p.x, p.y),
+                        };
+                        this.handle_scroll(dx, dy, cx);
+                    },
+                ))
+                .id("content");
+            if let Some(ref content_surface) = content_surface {
+                container = container
+                    .child(
+                        surface(content_surface.clone())
+                            .w_full()
+                            .h_full()
+                            .object_fit(gpui::ObjectFit::Contain),
+                    )
+                    .track_focus(&self.content_focus)
+                    .on_key_down(cx.listener(
+                        |this: &mut Chrome,
+                         event: &gpui::KeyDownEvent,
+                         _: &mut Window,
+                         cx: &mut Context<Chrome>| {
+                            this.handle_key_event(event, cx);
+                        },
+                    ));
+            } else if let Some(ref render_image) = frame_img {
+                container = container.child(
+                    img(render_image.clone())
+                        .w_full()
+                        .h_full()
+                        .object_fit(gpui::ObjectFit::Contain),
+                );
+            }
+            container.into_any_element()
+        };
+
+        #[cfg(all(not(target_os = "macos"), feature = "servo-render"))]
         let content: AnyElement = if let Some(ref render_image) = frame_img {
             div()
                 .flex_1()
@@ -635,7 +802,7 @@ fn main() {
         };
         cx.open_window(opts, |_w, cx| {
             cx.new(|cx| {
-                let mut chrome = Chrome::new();
+                let mut chrome = Chrome::new(cx);
                 chrome.init(cx);
                 chrome
             })

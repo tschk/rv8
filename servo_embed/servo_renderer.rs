@@ -6,6 +6,27 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
+#[cfg(all(target_os = "macos", feature = "servo-render"))]
+use std::cell::{Cell, RefCell};
+
+#[cfg(all(target_os = "macos", feature = "servo-render"))]
+use core_foundation::base::TCFType;
+#[cfg(all(target_os = "macos", feature = "servo-render"))]
+use core_video::pixel_buffer::CVPixelBuffer;
+#[cfg(all(target_os = "macos", feature = "servo-render"))]
+use euclid::Size2D;
+#[cfg(all(target_os = "macos", feature = "servo-render"))]
+use gleam::gl::{self as gl, Gl};
+#[cfg(all(target_os = "macos", feature = "servo-render"))]
+use glow::{Context as GlowContext, NativeFramebuffer};
+#[cfg(all(target_os = "macos", feature = "servo-render"))]
+use objc2_core_foundation::CFRetained;
+#[cfg(all(target_os = "macos", feature = "servo-render"))]
+use surfman::{
+    Connection, Context, ContextAttributeFlags, ContextAttributes, Device, GLApi, GLVersion,
+    SurfaceAccess, SurfaceType,
+};
+
 use dpi::PhysicalSize;
 use embedder_traits::{Scroll, WebViewPoint, WebViewVector};
 use servo::{
@@ -56,9 +77,211 @@ impl EventLoopWaker for EventLoopWakerImpl {
     }
 }
 
+#[cfg(all(target_os = "macos", feature = "servo-render"))]
+struct SendablePixelBuffer(CVPixelBuffer);
+
+#[cfg(all(target_os = "macos", feature = "servo-render"))]
+unsafe impl Send for SendablePixelBuffer {}
+
+#[cfg(all(target_os = "macos", feature = "servo-render"))]
+struct NativeSurfaceRenderingContext {
+    size: Cell<PhysicalSize<u32>>,
+    device: RefCell<Device>,
+    context: RefCell<Context>,
+    gleam_gl: Rc<dyn Gl>,
+    glow_gl: Arc<GlowContext>,
+}
+
+#[cfg(all(target_os = "macos", feature = "servo-render"))]
+impl NativeSurfaceRenderingContext {
+    fn new(size: PhysicalSize<u32>) -> Result<Self, surfman::Error> {
+        if size.width == 0 || size.height == 0 {
+            return Err(surfman::Error::Failed);
+        }
+        let connection = Connection::new()?;
+        let adapter = connection.create_hardware_adapter()?;
+        let device = connection.create_device(&adapter)?;
+        let gl_api = device.gl_api();
+        let version = match gl_api {
+            GLApi::GLES => GLVersion { major: 3, minor: 0 },
+            GLApi::GL => GLVersion { major: 3, minor: 2 },
+        };
+        let flags = ContextAttributeFlags::ALPHA
+            | ContextAttributeFlags::DEPTH
+            | ContextAttributeFlags::STENCIL;
+        let context_descriptor =
+            device.create_context_descriptor(&ContextAttributes { flags, version })?;
+        let mut context = device.create_context(&context_descriptor, None)?;
+        let gleam_gl = unsafe {
+            match gl_api {
+                GLApi::GL => gl::GlFns::load_with(|name| device.get_proc_address(&context, name)),
+                GLApi::GLES => {
+                    gl::GlesFns::load_with(|name| device.get_proc_address(&context, name))
+                }
+            }
+        };
+        let glow_gl = unsafe {
+            Arc::new(GlowContext::from_loader_function(|name| {
+                device.get_proc_address(&context, name)
+            }))
+        };
+        let surfman_size = Size2D::new(size.width as i32, size.height as i32);
+        let surface = device.create_surface(
+            &context,
+            SurfaceAccess::GPUOnly,
+            SurfaceType::Generic { size: surfman_size },
+        )?;
+        device
+            .bind_surface_to_context(&mut context, surface)
+            .map_err(|(e, mut s)| {
+                let _ = device.destroy_surface(&mut context, &mut s);
+                e
+            })?;
+        device.make_context_current(&context)?;
+        Ok(Self {
+            size: Cell::new(size),
+            device: RefCell::new(device),
+            context: RefCell::new(context),
+            gleam_gl,
+            glow_gl,
+        })
+    }
+
+    fn current_surface(&self) -> Option<CVPixelBuffer> {
+        let mut context = self.context.borrow_mut();
+        let surface = self
+            .device
+            .borrow()
+            .unbind_surface_from_context(&mut context)
+            .ok()??;
+        let native = self.device.borrow().native_surface(&surface);
+        let pixel_buffer = native_surface_to_cv_pixel_buffer(native);
+        let _ = self
+            .device
+            .borrow()
+            .bind_surface_to_context(&mut context, surface);
+        pixel_buffer
+    }
+
+    fn framebuffer(&self) -> Option<NativeFramebuffer> {
+        self.device
+            .borrow()
+            .context_surface_info(&self.context.borrow())
+            .unwrap_or(None)
+            .and_then(|info| info.framebuffer_object)
+    }
+}
+
+#[cfg(all(target_os = "macos", feature = "servo-render"))]
+#[allow(deprecated)]
+fn native_surface_to_cv_pixel_buffer(
+    native: surfman::cgl::surface::NativeSurface,
+) -> Option<CVPixelBuffer> {
+    let io_surface_ptr = CFRetained::as_ptr(&native.0)
+        .as_ptr()
+        .cast::<std::ffi::c_void>();
+    let io_surface_ptr = io_surface_ptr as io_surface::IOSurfaceRef;
+    let io_surface = unsafe { io_surface::IOSurface::wrap_under_create_rule(io_surface_ptr) };
+    CVPixelBuffer::from_io_surface(&io_surface, None).ok()
+}
+
+#[cfg(all(target_os = "macos", feature = "servo-render"))]
+impl Drop for NativeSurfaceRenderingContext {
+    fn drop(&mut self) {
+        let device = &mut self.device.borrow_mut();
+        let context = &mut self.context.borrow_mut();
+        let _ = device.destroy_context(context);
+    }
+}
+
+#[cfg(all(target_os = "macos", feature = "servo-render"))]
+impl RenderingContext for NativeSurfaceRenderingContext {
+    fn prepare_for_rendering(&self) {
+        let framebuffer_id = self
+            .framebuffer()
+            .map_or(0, |framebuffer| framebuffer.0.into());
+        self.gleam_gl
+            .bind_framebuffer(gleam::gl::FRAMEBUFFER, framebuffer_id);
+    }
+
+    fn read_to_image(&self, source_rectangle: DeviceIntRect) -> Option<image::RgbaImage> {
+        let framebuffer_id = self
+            .framebuffer()
+            .map_or(0, |framebuffer| framebuffer.0.into());
+        self.gleam_gl
+            .bind_framebuffer(gleam::gl::FRAMEBUFFER, framebuffer_id);
+        self.gleam_gl.bind_vertex_array(0);
+        let mut pixels = self.gleam_gl.read_pixels(
+            source_rectangle.min.x,
+            source_rectangle.min.y,
+            source_rectangle.width(),
+            source_rectangle.height(),
+            gleam::gl::RGBA,
+            gleam::gl::UNSIGNED_BYTE,
+        );
+        let gl_error = self.gleam_gl.get_error();
+        if gl_error != gleam::gl::NO_ERROR {
+            log::warn!("GL error code 0x{gl_error:x} set after read_pixels");
+        }
+        let source_rectangle = source_rectangle.to_usize();
+        let orig_pixels = pixels.clone();
+        let stride = source_rectangle.width() * 4;
+        for y in 0..source_rectangle.height() {
+            let dst_start = y * stride;
+            let src_start = (source_rectangle.height() - y - 1) * stride;
+            let src_slice = &orig_pixels[src_start..src_start + stride];
+            pixels[dst_start..dst_start + stride].copy_from_slice(src_slice);
+        }
+        image::RgbaImage::from_raw(
+            source_rectangle.width() as u32,
+            source_rectangle.height() as u32,
+            pixels,
+        )
+    }
+
+    fn size(&self) -> PhysicalSize<u32> {
+        self.size.get()
+    }
+
+    fn resize(&self, size: PhysicalSize<u32>) {
+        if size.width == 0 || size.height == 0 || self.size.get() == size {
+            return;
+        }
+        self.size.set(size);
+        let _ = self.device.borrow().resize_bound_surface(
+            &mut self.context.borrow_mut(),
+            Size2D::new(size.width as i32, size.height as i32),
+        );
+    }
+
+    fn present(&self) {
+        self.gleam_gl.flush();
+    }
+
+    fn make_current(&self) -> Result<(), surfman::Error> {
+        self.device
+            .borrow()
+            .make_context_current(&self.context.borrow())
+    }
+
+    fn gleam_gl_api(&self) -> Rc<dyn gleam::gl::Gl> {
+        self.gleam_gl.clone()
+    }
+
+    fn glow_gl_api(&self) -> Arc<GlowContext> {
+        self.glow_gl.clone()
+    }
+
+    fn connection(&self) -> Option<Connection> {
+        Some(self.device.borrow().connection())
+    }
+}
+
 pub struct ServoRenderer {
     servo: Servo,
     rendering_context: Rc<dyn RenderingContext>,
+    #[cfg(all(target_os = "macos", feature = "servo-render"))]
+    native_surface: Option<Rc<NativeSurfaceRenderingContext>>,
     webview: Option<WebView>,
     delegate: Rc<EmbedderDelegate>,
     width: u32,
@@ -77,10 +300,26 @@ impl ServoRenderer {
         let width = width.max(1);
         let height = height.max(1);
         let physical = PhysicalSize::new(width, height);
+
+        #[cfg(all(target_os = "macos", feature = "servo-render"))]
+        let (rendering_context, native_surface) =
+            if let Ok(ctx) = NativeSurfaceRenderingContext::new(physical) {
+                let ctx = Rc::new(ctx);
+                (ctx.clone() as Rc<dyn RenderingContext>, Some(ctx))
+            } else {
+                let ctx = Rc::new(
+                    SoftwareRenderingContext::new(physical)
+                        .map_err(|e| format!("SoftwareRenderingContext: {e:?}"))?,
+                );
+                (ctx as Rc<dyn RenderingContext>, None)
+            };
+
+        #[cfg(not(all(target_os = "macos", feature = "servo-render")))]
         let rendering_context = Rc::new(
             SoftwareRenderingContext::new(physical)
                 .map_err(|e| format!("SoftwareRenderingContext: {e:?}"))?,
         );
+
         rendering_context
             .make_current()
             .map_err(|e| format!("make_current: {e:?}"))?;
@@ -108,6 +347,8 @@ impl ServoRenderer {
         let renderer = ServoRenderer {
             servo,
             rendering_context,
+            #[cfg(all(target_os = "macos", feature = "servo-render"))]
+            native_surface,
             webview: None,
             delegate,
             width,
@@ -250,6 +491,20 @@ impl ServoRenderer {
         let _ = self.evaluate_script_sync(&script);
         self.frame_ready.store(true, Ordering::Relaxed);
         self.tick();
+    }
+
+    #[cfg(all(target_os = "macos", feature = "servo-render"))]
+    pub fn current_surface(&self) -> Option<CVPixelBuffer> {
+        self.native_surface.as_ref()?.current_surface()
+    }
+
+    pub fn handle_key_event(&mut self, event: keyboard_types::KeyboardEvent) {
+        use embedder_traits::{InputEvent, KeyboardEvent};
+        if let Some(webview) = &self.webview {
+            webview.notify_input_event(InputEvent::Keyboard(KeyboardEvent::new(event)));
+            self.frame_ready.store(true, Ordering::Relaxed);
+            self.tick();
+        }
     }
 
     pub fn title(&self) -> String {
@@ -667,6 +922,13 @@ enum ServoCmd {
         delta_x: f32,
         delta_y: f32,
     },
+    KeyEvent {
+        event: keyboard_types::KeyboardEvent,
+    },
+    #[cfg(target_os = "macos")]
+    CurrentSurface {
+        tx: mpsc::Sender<Option<SendablePixelBuffer>>,
+    },
     Shutdown,
 }
 
@@ -715,6 +977,13 @@ impl ServoHost {
                         ServoCmd::Scroll { delta_x, delta_y } => {
                             renderer.scroll_by(delta_x, delta_y);
                         }
+                        ServoCmd::KeyEvent { event } => {
+                            renderer.handle_key_event(event);
+                        }
+                        #[cfg(target_os = "macos")]
+                        ServoCmd::CurrentSurface { tx } => {
+                            let _ = tx.send(renderer.current_surface().map(SendablePixelBuffer));
+                        }
                     }
                 }
                 log::info!("ServoHost: thread exiting");
@@ -745,6 +1014,21 @@ impl ServoHost {
 
     pub fn scroll_by(&self, delta_x: f32, delta_y: f32) {
         let _ = self.tx.send(ServoCmd::Scroll { delta_x, delta_y });
+    }
+
+    pub fn handle_key_event(&self, event: keyboard_types::KeyboardEvent) {
+        let _ = self.tx.send(ServoCmd::KeyEvent { event });
+    }
+
+    #[cfg(target_os = "macos")]
+    pub fn current_surface(&self) -> Result<Option<CVPixelBuffer>, String> {
+        let (tx, rx) = mpsc::channel();
+        self.tx
+            .send(ServoCmd::CurrentSurface { tx })
+            .map_err(|e| format!("ServoHost send: {e}"))?;
+        rx.recv()
+            .map_err(|e| format!("ServoHost recv: {e}"))
+            .map(|opt| opt.map(|s| s.0))
     }
 
     /// Shut down the renderer thread.
