@@ -61,6 +61,9 @@ serde_json = "1.0"
 # IPC
 ipc-channel = "0.18"
 
+# Browser optimizations crate
+rv8_browser_optimizations = { path = "crates/rv8_browser_optimizations" }
+
 # Performance
 parking_lot = "0.12"
 sysinfo = "0.30"

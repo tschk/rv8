@@ -4,77 +4,10 @@
 
 use serde::{Deserialize, Serialize};
 
+use rv8_browser_optimizations::runtime::SurfaceId;
+
 use crate::js::JsValue;
 use crate::renderer::RenderFrame;
-
-// ── Inlined surface types (formerly from rv8_browser_optimizations::runtime) ──
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum PlatformTier {
-    Desktop,
-    ArmLinux,
-    Mobile,
-    Unknown,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub enum SurfaceRotation {
-    #[default]
-    Deg0,
-    Deg90,
-    Deg180,
-    Deg270,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub struct SurfaceSize {
-    pub width: u32,
-    pub height: u32,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct SurfaceId(pub u64);
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SurfaceDescriptor {
-    pub id: SurfaceId,
-    pub size: SurfaceSize,
-    pub scale_factor: f32,
-    pub tier: PlatformTier,
-    pub rotation: SurfaceRotation,
-    pub safe_area: SafeAreaInsets,
-    pub touch_enabled: bool,
-    pub keyboard_enabled: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub struct SafeAreaInsets {
-    pub top: u32,
-    pub right: u32,
-    pub bottom: u32,
-    pub left: u32,
-}
-
-impl SurfaceDescriptor {
-    pub fn new(id: u64, width: u32, height: u32, tier: PlatformTier) -> Self {
-        Self {
-            id: SurfaceId(id),
-            size: SurfaceSize { width, height },
-            scale_factor: 1.0,
-            tier,
-            rotation: SurfaceRotation::Deg0,
-            safe_area: SafeAreaInsets::default(),
-            touch_enabled: matches!(tier, PlatformTier::Mobile | PlatformTier::ArmLinux),
-            keyboard_enabled: true,
-        }
-    }
-}
-
-impl Default for SurfaceDescriptor {
-    fn default() -> Self {
-        Self::new(0, 1920, 1080, PlatformTier::Desktop)
-    }
-}
 
 // ── IPC message types ──
 
