@@ -1,6 +1,6 @@
 [package]
 name = "rv8"
-version = "0.1.0"
+version = "0.0.133"
 edition = "2021"
 description = "rv8, a modern browser engine with Servo rendering and V8 JavaScript"
 license-file = "LICENSE"

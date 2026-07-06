@@ -7260,7 +7260,7 @@ dependencies = [
 
 [[package]]
 name = "rv8"
-version = "0.1.0"
+version = "0.0.133"
 dependencies = [
  "bytes",
  "cocoa",
@@ -7300,7 +7300,7 @@ dependencies = [
 
 [[package]]
 name = "rv8_browser_optimizations"
-version = "0.1.0"
+version = "0.0.4"
 dependencies = [
  "bincode",
  "bytemuck",
