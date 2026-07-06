@@ -9,11 +9,13 @@ mod chrome_surface;
 #[cfg(all(target_os = "macos", feature = "servo-render"))]
 use chrome_surface::{NativeSurface, SurfaceConverter};
 
+#[cfg(all(target_os = "macos", feature = "servo-render"))]
+use core_foundation::base::TCFType;
 #[cfg(all(not(target_os = "macos"), feature = "servo-render"))]
 use gpui::img;
 use gpui::{
-    actions, point, px, rgb, size, AnyElement, Bounds, KeyBinding, ObjectFit, Render, Window,
-    WindowBounds, WindowOptions,
+    actions, point, px, rgb, size, AnyElement, Bounds, FocusHandle, Focusable, KeyBinding,
+    ObjectFit, Render, Window, WindowBounds, WindowOptions,
 };
 #[cfg(all(not(target_os = "macos"), feature = "servo-render"))]
 use image::RgbaImage;
@@ -23,8 +25,6 @@ use std::cell::RefCell;
 use std::rc::Rc;
 #[cfg(all(not(target_os = "macos"), feature = "servo-render"))]
 use std::sync::Arc;
-#[cfg(all(target_os = "macos", feature = "servo-render"))]
-use std::time::Duration;
 
 #[cfg(feature = "servo-render")]
 use rv8::servo_embed::ServoHost;
@@ -94,6 +94,9 @@ struct Chrome {
     next_id: u64,
     url_text: String,
     url_edit: Option<String>,
+    focus_handle: FocusHandle,
+    #[cfg(all(target_os = "macos", feature = "servo-render"))]
+    last_surface_update: Option<std::time::Instant>,
     #[cfg(feature = "servo-render")]
     servo_host: Option<ServoHost>,
     #[cfg(all(target_os = "macos", feature = "servo-render"))]
@@ -101,7 +104,7 @@ struct Chrome {
 }
 
 impl Chrome {
-    fn new(_cx: &mut Context<Self>) -> Self {
+    fn new(cx: &mut Context<Self>) -> Self {
         let url = "https://google.com".to_string();
         Self {
             tabs: vec![Tab::new(1, &url)],
@@ -109,6 +112,9 @@ impl Chrome {
             next_id: 2,
             url_text: url,
             url_edit: None,
+            focus_handle: cx.focus_handle(),
+            #[cfg(all(target_os = "macos", feature = "servo-render"))]
+            last_surface_update: None,
             #[cfg(feature = "servo-render")]
             servo_host: None,
             #[cfg(all(target_os = "macos", feature = "servo-render"))]
@@ -118,50 +124,39 @@ impl Chrome {
 
     fn init(&mut self, cx: &mut Context<Self>) {
         let url = self.url_text.clone();
-        self.navigate_to(&url);
-        #[cfg(all(target_os = "macos", feature = "servo-render"))]
-        self.start_render_loop(cx);
-        cx.notify();
+        self.navigate_to(&url, cx);
     }
 
     #[cfg(all(target_os = "macos", feature = "servo-render"))]
-    fn start_render_loop(&self, cx: &mut Context<Self>) {
-        cx.spawn(|this: gpui::WeakEntity<Chrome>, cx: &mut gpui::AsyncApp| {
-            let mut cx = cx.clone();
-            async move {
-                loop {
-                    cx.background_executor()
-                        .timer(Duration::from_millis(16))
-                        .await;
-                    if let Some(entity) = this.upgrade() {
-                        entity
-                            .update(&mut cx, |chrome, cx| chrome.update_surface(cx))
-                            .ok();
-                    }
-                }
-            }
-        })
-        .detach();
-    }
-
-    #[cfg(all(target_os = "macos", feature = "servo-render"))]
+    #[allow(deprecated)]
     fn update_surface(&mut self, cx: &mut Context<Self>) {
         if let Some(ref host) = self.servo_host {
             match host.current_surface() {
                 Ok(Some(surface)) => {
+                    let (width, height) = unsafe {
+                        (
+                            io_surface::IOSurfaceGetWidth(surface.as_concrete_TypeRef()),
+                            io_surface::IOSurfaceGetHeight(surface.as_concrete_TypeRef()),
+                        )
+                    };
+                    tracing::debug!("update_surface: got surface {}x{}", width, height);
                     if let Some(tab) = self.tabs.get_mut(self.active) {
                         tab.frame_surface = Some(surface);
                     }
+                    self.last_surface_update = Some(std::time::Instant::now());
+                    cx.notify();
                 }
-                Ok(None) => {}
-                Err(e) => log::error!("ServoHost current_surface: {e}"),
+                Ok(None) => {
+                    tracing::debug!("update_surface: no surface yet");
+                }
+                Err(e) => tracing::error!("ServoHost current_surface: {e}"),
             }
         }
-        cx.notify();
     }
 
-    fn navigate_to(&mut self, raw: &str) {
+    fn navigate_to(&mut self, raw: &str, cx: &mut Context<Self>) {
         let url = normalize_url(raw);
+        tracing::debug!("navigate_to: raw='{}' normalized='{}'", raw, url);
         self.url_text.clone_from(&url);
         self.url_edit = None;
         #[cfg(feature = "servo-render")]
@@ -175,15 +170,24 @@ impl Chrome {
                 tab.history_pos = tab.history.len() - 1;
             }
         }
+        cx.notify();
     }
 
     #[cfg(feature = "servo-render")]
+    #[allow(deprecated)]
     fn servo_render(&mut self, url: &str) {
+        tracing::debug!("servo_render: navigate to '{}'", url);
         let host = self
             .servo_host
             .get_or_insert_with(|| ServoHost::launch(1280, 800).expect("ServoHost launch"));
         match host.navigate(url) {
             Ok(result) => {
+                tracing::debug!(
+                    "servo_render: title='{}' has_frame={} has_surface={}",
+                    result.title,
+                    result.frame.is_some(),
+                    cfg!(all(target_os = "macos", feature = "servo-render"))
+                );
                 if let Some(ref mut tab) = self.tabs.get_mut(self.active) {
                     if !result.title.is_empty() {
                         tab.title = result.title;
@@ -191,6 +195,13 @@ impl Chrome {
                 }
                 #[cfg(all(target_os = "macos", feature = "servo-render"))]
                 if let Ok(Some(surface)) = host.current_surface() {
+                    let (width, height) = unsafe {
+                        (
+                            io_surface::IOSurfaceGetWidth(surface.as_concrete_TypeRef()),
+                            io_surface::IOSurfaceGetHeight(surface.as_concrete_TypeRef()),
+                        )
+                    };
+                    tracing::debug!("servo_render: got surface {}x{}", width, height);
                     if let Some(tab) = self.tabs.get_mut(self.active) {
                         tab.frame_surface = Some(surface);
                     }
@@ -199,6 +210,7 @@ impl Chrome {
                 if let Some(frame) = result.frame {
                     let w = frame.width;
                     let h = frame.height;
+                    tracing::debug!("servo_render: got frame {}x{}", w, h);
                     if let Some(rgba) = RgbaImage::from_raw(w, h, frame.pixels) {
                         let img_frame = image::Frame::new(rgba);
                         if let Some(tab) = self.tabs.get_mut(self.active) {
@@ -218,8 +230,7 @@ impl Chrome {
         self.tabs.push(Tab::new(id, &url));
         self.active = self.tabs.len() - 1;
         self.url_text = url.clone();
-        self.navigate_to(&url);
-        cx.notify();
+        self.navigate_to(&url, cx);
     }
 
     fn do_close_tab(&mut self, _: &CloseTab, _: &mut Window, cx: &mut Context<Self>) {
@@ -253,14 +264,17 @@ impl Chrome {
         cx.notify();
     }
 
-    fn start_url_edit(&mut self, cx: &mut Context<Self>) {
+    fn start_url_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.url_edit.is_none() {
             self.url_edit = Some(self.url_text.clone());
+            tracing::debug!("omnibar: started edit with '{}'", self.url_text);
         }
+        window.focus(&self.focus_handle);
         cx.notify();
     }
 
     fn set_url_edit(&mut self, text: String, cx: &mut Context<Self>) {
+        tracing::debug!("omnibar: set edit text to '{}'", text);
         self.url_edit = Some(text);
         cx.notify();
     }
@@ -270,19 +284,20 @@ impl Chrome {
             .url_edit
             .take()
             .unwrap_or_else(|| self.url_text.clone());
-        self.navigate_to(&url);
-        cx.notify();
+        tracing::debug!("omnibar: commit '{}'", url);
+        self.navigate_to(&url, cx);
     }
 
     fn cancel_url_edit(&mut self, cx: &mut Context<Self>) {
+        tracing::debug!("omnibar: cancelled edit");
         self.url_edit = None;
         cx.notify();
     }
 
     fn do_reload(&mut self, _: &Reload, _: &mut Window, cx: &mut Context<Self>) {
         let url = self.url_text.clone();
-        self.navigate_to(&url);
-        cx.notify();
+        tracing::debug!("reload: '{}'", url);
+        self.navigate_to(&url, cx);
     }
     fn do_nav(&mut self, _: &GoBack, _: &mut Window, cx: &mut Context<Self>) {
         let url = self.tabs.get(self.active).and_then(|tab| {
@@ -291,6 +306,7 @@ impl Chrome {
                 .and_then(|i| tab.history.get(i).cloned())
         });
         if let Some(url) = url {
+            tracing::debug!("go back: '{}'", url);
             self.tabs[self.active].history_pos -= 1;
             self.url_text.clone_from(&url);
             #[cfg(feature = "servo-render")]
@@ -308,6 +324,7 @@ impl Chrome {
             .get(self.active)
             .and_then(|tab| tab.history.get(tab.history_pos + 1).cloned());
         if let Some(url) = url {
+            tracing::debug!("go forward: '{}'", url);
             self.tabs[self.active].history_pos += 1;
             self.url_text.clone_from(&url);
             #[cfg(feature = "servo-render")]
@@ -319,8 +336,8 @@ impl Chrome {
             cx.notify();
         }
     }
-    fn do_focus(&mut self, _: &FocusUrl, _: &mut Window, cx: &mut Context<Self>) {
-        self.start_url_edit(cx);
+    fn do_focus(&mut self, _: &FocusUrl, window: &mut Window, cx: &mut Context<Self>) {
+        self.start_url_edit(window, cx);
     }
 
     #[cfg(feature = "servo-render")]
@@ -337,6 +354,7 @@ impl Chrome {
 
     #[cfg(feature = "servo-render")]
     fn handle_mouse_move(&mut self, x: f32, y: f32, cx: &mut Context<Self>) {
+        tracing::debug!("mouse move: {} {}", x, y);
         if let Some(ref host) = self.servo_host {
             host.handle_mouse_move(x, y);
             cx.notify();
@@ -345,6 +363,7 @@ impl Chrome {
 
     #[cfg(feature = "servo-render")]
     fn handle_mouse_click(&mut self, x: f32, y: f32, cx: &mut Context<Self>) {
+        tracing::debug!("mouse click: {} {}", x, y);
         if let Some(ref host) = self.servo_host {
             host.handle_mouse_click_at(x, y);
             cx.notify();
@@ -353,6 +372,7 @@ impl Chrome {
 
     #[cfg(feature = "servo-render")]
     fn handle_scroll(&mut self, delta_x: f32, delta_y: f32, cx: &mut Context<Self>) {
+        tracing::debug!("scroll: {} {}", delta_x, delta_y);
         if let Some(ref host) = self.servo_host {
             host.scroll_by(delta_x, delta_y);
             cx.notify();
@@ -363,6 +383,11 @@ impl Chrome {
     fn handle_key_event(&mut self, event: &gpui::KeyDownEvent, cx: &mut Context<Self>) {
         use keyboard_types::{Key, KeyState, Modifiers};
         use std::str::FromStr;
+        tracing::debug!(
+            "servo key: key='{}' key_char={:?}",
+            event.keystroke.key,
+            event.keystroke.key_char
+        );
         if let Some(ref host) = self.servo_host {
             let key = Key::from_str(&event.keystroke.key)
                 .unwrap_or_else(|_| Key::Character(event.keystroke.key.clone()));
@@ -693,20 +718,20 @@ impl Render for Chrome {
                             .flex()
                             .flex_row()
                             .items_center()
+                            .h_full()
                             .text_sm()
                             .text_color(rgb(if secure { 0x34d399 } else { TEXT }))
                             .overflow_hidden()
-                            .on_mouse_down(
-                                gpui::MouseButton::Left,
-                                cx.listener(
-                                    |this: &mut Chrome,
-                                     _: &gpui::MouseDownEvent,
-                                     _: &mut Window,
-                                     cx: &mut Context<Chrome>| {
-                                        this.start_url_edit(cx);
-                                    },
-                                ),
-                            )
+                            .cursor_text()
+                            .on_click(cx.listener(
+                                |this: &mut Chrome,
+                                 _: &gpui::ClickEvent,
+                                 window: &mut Window,
+                                 cx: &mut Context<Chrome>| {
+                                    tracing::debug!("omnibar: clicked, starting edit");
+                                    this.start_url_edit(window, cx);
+                                },
+                            ))
                             .child(self.url_edit.as_ref().unwrap_or(&self.url_text).clone()),
                     ),
             )
@@ -715,12 +740,24 @@ impl Render for Chrome {
             }));
 
         // ── Root layout ──
+        #[cfg(all(target_os = "macos", feature = "servo-render"))]
+        {
+            if self
+                .last_surface_update
+                .map_or(true, |t| t.elapsed().as_millis() >= 16)
+            {
+                self.update_surface(cx);
+            }
+            cx.notify();
+        }
+
         div()
             .id("root")
             .size_full()
             .flex()
             .flex_row()
             .bg(rgb(BG))
+            .track_focus(&self.focus_handle)
             .on_action(cx.listener(Self::do_new_tab))
             .on_action(cx.listener(Self::do_close_tab))
             .on_action(cx.listener(Self::do_nav))
@@ -732,8 +769,17 @@ impl Render for Chrome {
                  event: &gpui::KeyDownEvent,
                  _: &mut Window,
                  cx: &mut Context<Chrome>| {
-                    if this.url_edit.is_some() {
-                        let key = event.keystroke.key.as_str();
+                    let key = event.keystroke.key.as_str();
+                    let editing = this.url_edit.is_some();
+                    tracing::debug!(
+                        "key down: key='{}' key_char={:?} editing={} modifiers=ctrl:{} cmd:{}",
+                        key,
+                        event.keystroke.key_char,
+                        editing,
+                        event.keystroke.modifiers.control,
+                        event.keystroke.modifiers.platform
+                    );
+                    if editing {
                         if key == "backspace" || key == "delete" {
                             let mut text = this.url_edit.clone().unwrap_or_default();
                             if !text.is_empty() {
@@ -798,6 +844,12 @@ fn btn_with_action(
         .child(make_icon(name, TEXT_MUTED))
 }
 
+impl Focusable for Chrome {
+    fn focus_handle(&self, _cx: &App) -> FocusHandle {
+        self.focus_handle.clone()
+    }
+}
+
 fn bind_keys(cx: &mut gpui::App) {
     cx.bind_keys([
         KeyBinding::new("cmd-t", NewTab, None),
@@ -810,6 +862,7 @@ fn bind_keys(cx: &mut gpui::App) {
 }
 
 fn main() {
+    tracing_subscriber::fmt::init();
     gpui::Application::new().run(move |cx: &mut gpui::App| {
         bind_keys(cx);
         let opts = WindowOptions {
@@ -844,12 +897,14 @@ fn main() {
             window_decorations: None,
             tabbing_identifier: None,
         };
-        cx.open_window(opts, |_w, cx| {
-            cx.new(|cx| {
+        cx.open_window(opts, |window, cx| {
+            let entity = cx.new(|cx| {
                 let mut chrome = Chrome::new(cx);
                 chrome.init(cx);
                 chrome
-            })
+            });
+            window.focus(&entity.focus_handle(cx));
+            entity
         })
         .unwrap();
     });

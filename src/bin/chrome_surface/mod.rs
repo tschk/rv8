@@ -68,6 +68,7 @@ mod native {
         pub fn convert(&mut self, source: &IOSurface) -> Option<&CVPixelBuffer> {
             let width = unsafe { IOSurfaceGetWidth(source.as_concrete_TypeRef()) };
             let height = unsafe { IOSurfaceGetHeight(source.as_concrete_TypeRef()) };
+            tracing::debug!("convert: source {}x{}", width, height);
 
             if self.session.is_none() {
                 let mut session: VTPixelTransferSessionRef = null::<c_void>() as _;
@@ -77,6 +78,7 @@ mod native {
                     log::error!("VTPixelTransferSessionCreate failed: {status}");
                     return None;
                 }
+                tracing::debug!("convert: created VTPixelTransferSession");
                 self.session = Some(session);
             }
 
@@ -99,6 +101,7 @@ mod native {
                     log::error!("Failed to create YUV CVPixelBuffer");
                     return None;
                 }
+                tracing::debug!("convert: created YUV buffer {}x{}", width, height);
             }
 
             let src = CVPixelBuffer::from_io_surface(source, None).ok()?;
@@ -115,6 +118,7 @@ mod native {
                 log::error!("VTPixelTransferSessionTransferImage failed: {status}");
                 return None;
             }
+            tracing::debug!("convert: transferred image");
             self.dest.as_ref()
         }
     }
