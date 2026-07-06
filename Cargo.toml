@@ -98,6 +98,9 @@ servo-render = ["dep:servo", "dep:dpi", "dep:rustls", "dep:servo-embedder-traits
 rv8-v8 = ["dep:rusty_v8"]
 chrome = ["dep:gpui", "dep:crepuscularity-gpui", "crepuscularity-gpui/symbols"]
 
+[patch.crates-io]
+serde_fmt = { path = "patches/serde_fmt" }
+
 [dev-dependencies]
 criterion = { version = "0.5", features = ["async_tokio"] }
 tempfile = "3"
