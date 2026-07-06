@@ -1,12 +1,25 @@
 //! Network stack module
 
+use crate::optimizations::{
+    DnsPrefetchCache, PrefetchManager, PrefetchPriority, PriorityQueue, ResourceRequest,
+    ResourceType,
+};
 use crate::storage::{CookieJar, StorageManager};
 use log::info;
 use std::sync::Arc;
 
+/// Default maximum concurrent network requests.
+const DEFAULT_MAX_CONCURRENT: usize = 6;
+
 /// Network manager for HTTP requests
 pub struct NetworkManager {
     cookies: Arc<CookieJar>,
+    /// DNS prefetch cache.
+    dns_prefetch: DnsPrefetchCache,
+    /// Resource prefetch manager.
+    prefetch: PrefetchManager,
+    /// Priority queue for in-flight resource requests.
+    priority_queue: PriorityQueue,
 }
 
 impl NetworkManager {
@@ -14,11 +27,45 @@ impl NetworkManager {
         info!("Initializing network manager");
         Ok(NetworkManager {
             cookies: Arc::new(storage.cookies.clone()),
+            dns_prefetch: DnsPrefetchCache::new(),
+            prefetch: PrefetchManager::new(),
+            priority_queue: PriorityQueue::new(DEFAULT_MAX_CONCURRENT),
         })
     }
 
     pub fn cookie_jar(&self) -> &CookieJar {
         &self.cookies
+    }
+
+    /// Access the DNS prefetch cache.
+    pub fn dns_prefetch(&self) -> &DnsPrefetchCache {
+        &self.dns_prefetch
+    }
+
+    /// Access the resource prefetch manager.
+    pub fn prefetch(&self) -> &PrefetchManager {
+        &self.prefetch
+    }
+
+    /// Access the resource priority queue.
+    pub fn priority_queue(&self) -> &PriorityQueue {
+        &self.priority_queue
+    }
+
+    /// Submit a resource request to the priority queue.
+    pub fn queue_resource(&mut self, request: ResourceRequest) -> u64 {
+        self.priority_queue.enqueue(request)
+    }
+
+    /// Request a resource prefetch.
+    pub fn request_prefetch(&mut self, url: &str, priority: PrefetchPriority) {
+        self.prefetch
+            .request_prefetch(url.to_string(), ResourceType::Resource, priority);
+    }
+
+    /// Register a DNS prefetch candidate for a host.
+    pub fn prefetch_host(&mut self, host: &str) {
+        self.dns_prefetch.prefetch(host.to_string());
     }
 }
 

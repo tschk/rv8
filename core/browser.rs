@@ -9,6 +9,7 @@ use super::{BrowserConfig, ProcessManager, Tab, TabId};
 use crate::compositor::Compositor;
 use crate::ipc::BrowserMessage;
 use crate::networking::NetworkManager;
+use crate::optimizations::MemoryOptimizer;
 use crate::storage::StorageManager;
 
 /// Main browser instance
@@ -36,6 +37,9 @@ pub struct Browser {
 
     /// Storage manager
     storage: Arc<StorageManager>,
+
+    /// Memory optimizer / pressure monitor
+    memory_optimizer: Arc<MemoryOptimizer>,
 
     /// Shutdown signal
     shutdown: tokio::sync::broadcast::Sender<()>,
@@ -88,6 +92,8 @@ impl Browser {
 
         let (shutdown_tx, _) = tokio::sync::broadcast::channel(1);
 
+        let memory_optimizer = Arc::new(MemoryOptimizer::default());
+
         Ok(Browser {
             config,
             tabs: RwLock::new(HashMap::new()),
@@ -97,6 +103,7 @@ impl Browser {
             compositor,
             network,
             storage,
+            memory_optimizer,
             shutdown: shutdown_tx,
             browser_events: browser_event_rx,
         })
@@ -348,6 +355,11 @@ impl Browser {
 
     pub fn storage(&self) -> &StorageManager {
         &self.storage
+    }
+
+    /// Memory optimizer / pressure monitor.
+    pub fn memory_optimizer(&self) -> &MemoryOptimizer {
+        &self.memory_optimizer
     }
 }
 
