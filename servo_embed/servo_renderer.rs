@@ -10,11 +10,22 @@ use std::time::{Duration, Instant};
 use std::cell::{Cell, RefCell};
 
 #[cfg(all(target_os = "macos", feature = "servo-render"))]
+use core_foundation::base::TCFType;
+#[cfg(all(target_os = "macos", feature = "servo-render"))]
 use euclid::Size2D;
 #[cfg(all(target_os = "macos", feature = "servo-render"))]
 use gleam::gl::{self as gl, Gl};
 #[cfg(all(target_os = "macos", feature = "servo-render"))]
 use glow::{Context as GlowContext, NativeFramebuffer};
+#[cfg(all(target_os = "macos", feature = "servo-render"))]
+#[allow(deprecated)]
+use io_surface::IOSurface;
+
+#[cfg(all(target_os = "macos", feature = "servo-render"))]
+struct SendableIOSurface(IOSurface);
+
+#[cfg(all(target_os = "macos", feature = "servo-render"))]
+unsafe impl Send for SendableIOSurface {}
 #[cfg(all(target_os = "macos", feature = "servo-render"))]
 use surfman::{
     Connection, Context, ContextAttributeFlags, ContextAttributes, Device, GLApi, GLVersion,
@@ -142,6 +153,28 @@ impl NativeSurfaceRenderingContext {
             .unwrap_or(None)
             .and_then(|info| info.framebuffer_object)
     }
+
+    fn current_surface(&self) -> Option<IOSurface> {
+        use objc2_core_foundation::CFRetained;
+        let mut context = self.context.borrow_mut();
+        let surface = self
+            .device
+            .borrow()
+            .unbind_surface_from_context(&mut context)
+            .ok()??;
+        let native = self.device.borrow().native_surface(&surface);
+        // surfman 0.13 now returns an objc2-io-surface CFRetained; convert to the
+        // io_surface crate type that core-video 0.4 uses without double-releasing.
+        let cloned = native.0.clone();
+        let ptr = CFRetained::as_ptr(&cloned).as_ptr() as io_surface::IOSurfaceRef;
+        let io_surface = unsafe { io_surface::IOSurface::wrap_under_create_rule(ptr) };
+        std::mem::forget(cloned);
+        let _ = self
+            .device
+            .borrow()
+            .bind_surface_to_context(&mut context, surface);
+        Some(io_surface)
+    }
 }
 
 #[cfg(all(target_os = "macos", feature = "servo-render"))]
@@ -239,6 +272,8 @@ impl RenderingContext for NativeSurfaceRenderingContext {
 pub struct ServoRenderer {
     servo: Servo,
     rendering_context: Rc<dyn RenderingContext>,
+    #[cfg(all(target_os = "macos", feature = "servo-render"))]
+    native_surface: Option<Rc<NativeSurfaceRenderingContext>>,
     webview: Option<WebView>,
     delegate: Rc<EmbedderDelegate>,
     width: u32,
@@ -259,14 +294,16 @@ impl ServoRenderer {
         let physical = PhysicalSize::new(width, height);
 
         #[cfg(all(target_os = "macos", feature = "servo-render"))]
-        let rendering_context: Rc<dyn RenderingContext> =
+        let (rendering_context, native_surface) =
             if let Ok(ctx) = NativeSurfaceRenderingContext::new(physical) {
-                Rc::new(ctx)
+                let ctx = Rc::new(ctx);
+                (ctx.clone() as Rc<dyn RenderingContext>, Some(ctx))
             } else {
-                Rc::new(
+                let ctx = Rc::new(
                     SoftwareRenderingContext::new(physical)
                         .map_err(|e| format!("SoftwareRenderingContext: {e:?}"))?,
-                )
+                );
+                (ctx as Rc<dyn RenderingContext>, None)
             };
 
         #[cfg(not(all(target_os = "macos", feature = "servo-render")))]
@@ -302,6 +339,8 @@ impl ServoRenderer {
         let renderer = ServoRenderer {
             servo,
             rendering_context,
+            #[cfg(all(target_os = "macos", feature = "servo-render"))]
+            native_surface,
             webview: None,
             delegate,
             width,
@@ -453,6 +492,11 @@ impl ServoRenderer {
             self.frame_ready.store(true, Ordering::Relaxed);
             self.tick();
         }
+    }
+
+    #[cfg(all(target_os = "macos", feature = "servo-render"))]
+    pub fn current_surface(&self) -> Option<IOSurface> {
+        self.native_surface.as_ref()?.current_surface()
     }
 
     pub fn title(&self) -> String {
@@ -867,6 +911,10 @@ enum ServoCmd {
     CaptureFrame {
         tx: mpsc::Sender<Option<RenderFrame>>,
     },
+    #[cfg(target_os = "macos")]
+    CurrentSurface {
+        tx: mpsc::Sender<Option<SendableIOSurface>>,
+    },
     Shutdown,
 }
 
@@ -921,6 +969,10 @@ impl ServoHost {
                         ServoCmd::CaptureFrame { tx } => {
                             let _ = tx.send(renderer.capture_frame(0));
                         }
+                        #[cfg(target_os = "macos")]
+                        ServoCmd::CurrentSurface { tx } => {
+                            let _ = tx.send(renderer.current_surface().map(SendableIOSurface));
+                        }
                     }
                 }
                 log::info!("ServoHost: thread exiting");
@@ -963,6 +1015,18 @@ impl ServoHost {
             .send(ServoCmd::CaptureFrame { tx })
             .map_err(|e| format!("ServoHost send: {e}"))?;
         rx.recv().map_err(|e| format!("ServoHost recv: {e}"))
+    }
+
+    #[cfg(target_os = "macos")]
+    pub fn current_surface(&self) -> Result<Option<IOSurface>, String> {
+        let (tx, rx) = mpsc::channel();
+        self.tx
+            .send(ServoCmd::CurrentSurface { tx })
+            .map_err(|e| format!("ServoHost send: {e}"))?;
+        rx.recv()
+            .map_err(|e| format!("ServoHost recv: {e}"))?
+            .map(|s| Ok(Some(s.0)))
+            .unwrap_or(Ok(None))
     }
 
     /// Shut down the renderer thread.

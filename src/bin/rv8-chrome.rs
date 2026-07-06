@@ -5,15 +5,23 @@
 use crepuscularity_gpui::prelude::*;
 use crepuscularity_gpui::Icon;
 
+mod chrome_surface;
+#[cfg(all(target_os = "macos", feature = "servo-render"))]
+use chrome_surface::{NativeSurface, SurfaceConverter};
+
+#[cfg(all(not(target_os = "macos"), feature = "servo-render"))]
+use gpui::img;
 use gpui::{
-    actions, point, px, rgb, size, AnyElement, Bounds, KeyBinding, Render, Window, WindowBounds,
-    WindowOptions,
+    actions, point, px, rgb, size, AnyElement, Bounds, KeyBinding, ObjectFit, Render, Window,
+    WindowBounds, WindowOptions,
 };
-#[cfg(feature = "servo-render")]
-use gpui::{img, RenderImage};
-#[cfg(feature = "servo-render")]
+#[cfg(all(not(target_os = "macos"), feature = "servo-render"))]
 use image::RgbaImage;
-#[cfg(feature = "servo-render")]
+#[cfg(all(target_os = "macos", feature = "servo-render"))]
+use std::cell::RefCell;
+#[cfg(all(target_os = "macos", feature = "servo-render"))]
+use std::rc::Rc;
+#[cfg(all(not(target_os = "macos"), feature = "servo-render"))]
 use std::sync::Arc;
 #[cfg(all(target_os = "macos", feature = "servo-render"))]
 use std::time::Duration;
@@ -48,8 +56,10 @@ struct Tab {
     title: String,
     history: Vec<String>,
     history_pos: usize,
-    #[cfg(feature = "servo-render")]
-    frame_img: Option<Arc<RenderImage>>,
+    #[cfg(all(target_os = "macos", feature = "servo-render"))]
+    frame_surface: Option<io_surface::IOSurface>,
+    #[cfg(all(not(target_os = "macos"), feature = "servo-render"))]
+    frame_img: Option<Arc<gpui::RenderImage>>,
 }
 
 impl Tab {
@@ -60,7 +70,9 @@ impl Tab {
             title: Self::title_from(url),
             history: vec![url.to_string()],
             history_pos: 0,
-            #[cfg(feature = "servo-render")]
+            #[cfg(all(target_os = "macos", feature = "servo-render"))]
+            frame_surface: None,
+            #[cfg(all(not(target_os = "macos"), feature = "servo-render"))]
             frame_img: None,
         }
     }
@@ -84,6 +96,8 @@ struct Chrome {
     url_edit: Option<String>,
     #[cfg(feature = "servo-render")]
     servo_host: Option<ServoHost>,
+    #[cfg(all(target_os = "macos", feature = "servo-render"))]
+    surface_converter: Rc<RefCell<SurfaceConverter>>,
 }
 
 impl Chrome {
@@ -97,6 +111,8 @@ impl Chrome {
             url_edit: None,
             #[cfg(feature = "servo-render")]
             servo_host: None,
+            #[cfg(all(target_os = "macos", feature = "servo-render"))]
+            surface_converter: Rc::new(RefCell::new(SurfaceConverter::new())),
         }
     }
 
@@ -131,19 +147,14 @@ impl Chrome {
     #[cfg(all(target_os = "macos", feature = "servo-render"))]
     fn update_surface(&mut self, cx: &mut Context<Self>) {
         if let Some(ref host) = self.servo_host {
-            match host.capture_frame() {
-                Ok(Some(frame)) => {
+            match host.current_surface() {
+                Ok(Some(surface)) => {
                     if let Some(tab) = self.tabs.get_mut(self.active) {
-                        if let Some(rgba) =
-                            RgbaImage::from_raw(frame.width, frame.height, frame.pixels)
-                        {
-                            tab.frame_img =
-                                Some(Arc::new(RenderImage::new([image::Frame::new(rgba)])));
-                        }
+                        tab.frame_surface = Some(surface);
                     }
                 }
                 Ok(None) => {}
-                Err(e) => log::error!("ServoHost capture_frame: {e}"),
+                Err(e) => log::error!("ServoHost current_surface: {e}"),
             }
         }
         cx.notify();
@@ -178,6 +189,13 @@ impl Chrome {
                         tab.title = result.title;
                     }
                 }
+                #[cfg(all(target_os = "macos", feature = "servo-render"))]
+                if let Ok(Some(surface)) = host.current_surface() {
+                    if let Some(tab) = self.tabs.get_mut(self.active) {
+                        tab.frame_surface = Some(surface);
+                    }
+                }
+                #[cfg(all(not(target_os = "macos"), feature = "servo-render"))]
                 if let Some(frame) = result.frame {
                     let w = frame.width;
                     let h = frame.height;
@@ -223,6 +241,11 @@ impl Chrome {
         #[cfg(feature = "servo-render")]
         {
             let url = self.url_text.clone();
+            #[cfg(all(target_os = "macos", feature = "servo-render"))]
+            if self.tabs[idx].frame_surface.is_none() {
+                self.servo_render(&url);
+            }
+            #[cfg(all(not(target_os = "macos"), feature = "servo-render"))]
             if self.tabs[idx].frame_img.is_none() {
                 self.servo_render(&url);
             }
@@ -483,21 +506,27 @@ impl Render for Chrome {
             );
 
         // ── Content ──
-        #[cfg(feature = "servo-render")]
+        #[cfg(all(not(target_os = "macos"), feature = "servo-render"))]
         let frame_img = self.tabs.get(self.active).and_then(|t| t.frame_img.clone());
+        #[cfg(all(target_os = "macos", feature = "servo-render"))]
+        let frame_surface = self
+            .tabs
+            .get(self.active)
+            .and_then(|t| t.frame_surface.clone());
 
         #[cfg(all(target_os = "macos", feature = "servo-render"))]
-        let content: AnyElement = if let Some(ref render_image) = frame_img {
+        let content: AnyElement = if let Some(ref surface) = frame_surface {
+            let converter = self.surface_converter.clone();
             div()
                 .flex_1()
                 .w_full()
                 .overflow_hidden()
                 .bg(rgb(BG))
                 .child(
-                    img(render_image.clone())
+                    NativeSurface::new(surface.clone(), converter)
                         .w_full()
                         .h_full()
-                        .object_fit(gpui::ObjectFit::Contain),
+                        .object_fit(ObjectFit::Contain),
                 )
                 .on_mouse_move(cx.listener(
                     |this: &mut Chrome,
