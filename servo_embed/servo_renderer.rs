@@ -376,7 +376,9 @@ impl ServoRenderer {
         frame.id = generation;
         let img_w = image.width();
         let img_h = image.height();
-        let rgba = image.into_raw();
+        let mut rgba = image.into_raw();
+        #[cfg(target_os = "macos")]
+        Self::bgra_to_rgba(&mut rgba);
         if img_w == self.width && img_h == self.height && rgba.len() == frame.pixels.len() {
             frame.pixels = rgba;
         } else {
@@ -384,6 +386,13 @@ impl ServoRenderer {
             frame.pixels[..copy_len].copy_from_slice(&rgba[..copy_len]);
         }
         Some(frame)
+    }
+
+    #[cfg(target_os = "macos")]
+    fn bgra_to_rgba(pixels: &mut [u8]) {
+        for chunk in pixels.chunks_exact_mut(4) {
+            chunk.swap(0, 2);
+        }
     }
 
     fn install_polyfills(&mut self) {
@@ -646,6 +655,18 @@ enum ServoCmd {
         url: String,
         tx: mpsc::Sender<Result<ServoHostResult, String>>,
     },
+    MouseMove {
+        x: f32,
+        y: f32,
+    },
+    MouseClick {
+        x: f32,
+        y: f32,
+    },
+    Scroll {
+        delta_x: f32,
+        delta_y: f32,
+    },
     Shutdown,
 }
 
@@ -685,6 +706,15 @@ impl ServoHost {
                             })();
                             let _ = tx.send(result);
                         }
+                        ServoCmd::MouseMove { x, y } => {
+                            renderer.handle_mouse_move(x, y);
+                        }
+                        ServoCmd::MouseClick { x, y } => {
+                            renderer.handle_mouse_click_at(x, y);
+                        }
+                        ServoCmd::Scroll { delta_x, delta_y } => {
+                            renderer.scroll_by(delta_x, delta_y);
+                        }
                     }
                 }
                 log::info!("ServoHost: thread exiting");
@@ -703,6 +733,18 @@ impl ServoHost {
             })
             .map_err(|e| format!("ServoHost send: {e}"))?;
         rx.recv().map_err(|e| format!("ServoHost recv: {e}"))?
+    }
+
+    pub fn handle_mouse_move(&self, x: f32, y: f32) {
+        let _ = self.tx.send(ServoCmd::MouseMove { x, y });
+    }
+
+    pub fn handle_mouse_click_at(&self, x: f32, y: f32) {
+        let _ = self.tx.send(ServoCmd::MouseClick { x, y });
+    }
+
+    pub fn scroll_by(&self, delta_x: f32, delta_y: f32) {
+        let _ = self.tx.send(ServoCmd::Scroll { delta_x, delta_y });
     }
 
     /// Shut down the renderer thread.

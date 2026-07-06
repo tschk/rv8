@@ -74,6 +74,7 @@ struct Chrome {
     active: usize,
     next_id: u64,
     url_text: String,
+    url_edit: Option<String>,
     #[cfg(feature = "servo-render")]
     servo_host: Option<ServoHost>,
 }
@@ -86,6 +87,7 @@ impl Chrome {
             active: 0,
             next_id: 2,
             url_text: url,
+            url_edit: None,
             #[cfg(feature = "servo-render")]
             servo_host: None,
         }
@@ -100,6 +102,7 @@ impl Chrome {
     fn navigate_to(&mut self, raw: &str) {
         let url = normalize_url(raw);
         self.url_text.clone_from(&url);
+        self.url_edit = None;
         #[cfg(feature = "servo-render")]
         self.servo_render(&url);
         if let Some(tab) = self.tabs.get_mut(self.active) {
@@ -172,6 +175,32 @@ impl Chrome {
         cx.notify();
     }
 
+    fn start_url_edit(&mut self, cx: &mut Context<Self>) {
+        if self.url_edit.is_none() {
+            self.url_edit = Some(self.url_text.clone());
+        }
+        cx.notify();
+    }
+
+    fn set_url_edit(&mut self, text: String, cx: &mut Context<Self>) {
+        self.url_edit = Some(text);
+        cx.notify();
+    }
+
+    fn commit_url_edit(&mut self, cx: &mut Context<Self>) {
+        let url = self
+            .url_edit
+            .take()
+            .unwrap_or_else(|| self.url_text.clone());
+        self.navigate_to(&url);
+        cx.notify();
+    }
+
+    fn cancel_url_edit(&mut self, cx: &mut Context<Self>) {
+        self.url_edit = None;
+        cx.notify();
+    }
+
     fn do_reload(&mut self, _: &Reload, _: &mut Window, cx: &mut Context<Self>) {
         let url = self.url_text.clone();
         self.navigate_to(&url);
@@ -179,7 +208,45 @@ impl Chrome {
     }
     fn do_nav(&mut self, _: &GoBack, _: &mut Window, _: &mut Context<Self>) {}
     fn do_fwd(&mut self, _: &GoForward, _: &mut Window, _: &mut Context<Self>) {}
-    fn do_focus(&mut self, _: &FocusUrl, _: &mut Window, _: &mut Context<Self>) {}
+    fn do_focus(&mut self, _: &FocusUrl, _: &mut Window, cx: &mut Context<Self>) {
+        self.start_url_edit(cx);
+    }
+
+    #[cfg(feature = "servo-render")]
+    fn content_to_viewport(&self, x: f32, y: f32, window: &Window) -> (f32, f32) {
+        let size = window.bounds().size;
+        let content_x = x - SIDEBAR_W;
+        let content_y = y - TOPBAR_H - 1.0;
+        let content_w = (f32::from(size.width) - SIDEBAR_W).max(1.0);
+        let content_h = (f32::from(size.height) - TOPBAR_H - 1.0).max(1.0);
+        let vp_x = (content_x / content_w) * 1280.0;
+        let vp_y = (content_y / content_h) * 800.0;
+        (vp_x.clamp(0.0, 1280.0), vp_y.clamp(0.0, 800.0))
+    }
+
+    #[cfg(feature = "servo-render")]
+    fn handle_mouse_move(&mut self, x: f32, y: f32, cx: &mut Context<Self>) {
+        if let Some(ref host) = self.servo_host {
+            host.handle_mouse_move(x, y);
+            cx.notify();
+        }
+    }
+
+    #[cfg(feature = "servo-render")]
+    fn handle_mouse_click(&mut self, x: f32, y: f32, cx: &mut Context<Self>) {
+        if let Some(ref host) = self.servo_host {
+            host.handle_mouse_click_at(x, y);
+            cx.notify();
+        }
+    }
+
+    #[cfg(feature = "servo-render")]
+    fn handle_scroll(&mut self, delta_x: f32, delta_y: f32, cx: &mut Context<Self>) {
+        if let Some(ref host) = self.servo_host {
+            host.scroll_by(delta_x, delta_y);
+            cx.notify();
+        }
+    }
 }
 
 fn normalize_url(input: &str) -> String {
@@ -301,8 +368,55 @@ impl Render for Chrome {
             div()
                 .flex_1()
                 .w_full()
+                .overflow_hidden()
                 .bg(rgb(BG))
-                .child(img(render_image.clone()).w_full().h_full())
+                .child(
+                    img(render_image.clone())
+                        .w_full()
+                        .h_full()
+                        .object_fit(gpui::ObjectFit::Contain),
+                )
+                .on_mouse_move(cx.listener(
+                    |this: &mut Chrome,
+                     event: &gpui::MouseMoveEvent,
+                     window: &mut Window,
+                     cx: &mut Context<Chrome>| {
+                        let (x, y) = this.content_to_viewport(
+                            event.position.x.into(),
+                            event.position.y.into(),
+                            window,
+                        );
+                        this.handle_mouse_move(x, y, cx);
+                    },
+                ))
+                .on_mouse_down(
+                    gpui::MouseButton::Left,
+                    cx.listener(
+                        |this: &mut Chrome,
+                         event: &gpui::MouseDownEvent,
+                         window: &mut Window,
+                         cx: &mut Context<Chrome>| {
+                            let (x, y) = this.content_to_viewport(
+                                event.position.x.into(),
+                                event.position.y.into(),
+                                window,
+                            );
+                            this.handle_mouse_click(x, y, cx);
+                        },
+                    ),
+                )
+                .on_scroll_wheel(cx.listener(
+                    |this: &mut Chrome,
+                     event: &gpui::ScrollWheelEvent,
+                     _: &mut Window,
+                     cx: &mut Context<Chrome>| {
+                        let (dx, dy) = match event.delta {
+                            gpui::ScrollDelta::Pixels(p) => (p.x.into(), p.y.into()),
+                            gpui::ScrollDelta::Lines(p) => (p.x, p.y),
+                        };
+                        this.handle_scroll(dx, dy, cx);
+                    },
+                ))
                 .into_any_element()
         } else {
             div().flex_1().w_full().bg(rgb(BG)).into_any_element()
@@ -341,7 +455,11 @@ impl Render for Chrome {
                     .rounded(px(7.))
                     .bg(rgb(0x222224))
                     .border_1()
-                    .border_color(rgb(BORDER))
+                    .border_color(rgb(if self.url_edit.is_some() {
+                        0x0a84ff
+                    } else {
+                        BORDER
+                    }))
                     .child(if secure {
                         make_icon("lock.fill", 0x34d399)
                     } else {
@@ -349,11 +467,26 @@ impl Render for Chrome {
                     })
                     .child(
                         div()
+                            .id("url-bar")
                             .flex_1()
+                            .flex()
+                            .flex_row()
+                            .items_center()
                             .text_sm()
                             .text_color(rgb(if secure { 0x34d399 } else { TEXT }))
                             .overflow_hidden()
-                            .child(self.url_text.clone()),
+                            .on_mouse_down(
+                                gpui::MouseButton::Left,
+                                cx.listener(
+                                    |this: &mut Chrome,
+                                     _: &gpui::MouseDownEvent,
+                                     _: &mut Window,
+                                     cx: &mut Context<Chrome>| {
+                                        this.start_url_edit(cx);
+                                    },
+                                ),
+                            )
+                            .child(self.url_edit.as_ref().unwrap_or(&self.url_text).clone()),
                     ),
             )
             .child(btn_with_action(cx, "plus", |this, window, cx| {
@@ -373,6 +506,37 @@ impl Render for Chrome {
             .on_action(cx.listener(Self::do_fwd))
             .on_action(cx.listener(Self::do_reload))
             .on_action(cx.listener(Self::do_focus))
+            .on_key_down(cx.listener(
+                |this: &mut Chrome,
+                 event: &gpui::KeyDownEvent,
+                 _: &mut Window,
+                 cx: &mut Context<Chrome>| {
+                    if this.url_edit.is_none() {
+                        return;
+                    }
+                    let key = event.keystroke.key.as_str();
+                    if key == "backspace" || key == "delete" {
+                        let mut text = this.url_edit.clone().unwrap_or_default();
+                        if !text.is_empty() {
+                            text.pop();
+                        }
+                        this.set_url_edit(text, cx);
+                    } else if key == "enter" || key == "return" {
+                        this.commit_url_edit(cx);
+                    } else if key == "escape" {
+                        this.cancel_url_edit(cx);
+                    } else if let Some(ch) = event.keystroke.key_char.as_ref() {
+                        if ch.len() == 1
+                            && !event.keystroke.modifiers.control
+                            && !event.keystroke.modifiers.platform
+                        {
+                            let mut text = this.url_edit.clone().unwrap_or_default();
+                            text.push_str(ch);
+                            this.set_url_edit(text, cx);
+                        }
+                    }
+                },
+            ))
             .child(sidebar)
             .child(
                 div()
