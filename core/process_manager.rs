@@ -258,7 +258,8 @@ impl ProcessManager {
                         Ok(mut renderer) => renderer.run(mpsc_rx).await,
                         Err(e) => log::error!(
                             "Failed to create in-process renderer for tab {}: {}",
-                            tab_id_val, e
+                            tab_id_val,
+                            e
                         ),
                     }
                 });

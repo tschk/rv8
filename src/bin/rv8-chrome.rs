@@ -5,10 +5,14 @@
 use crepuscularity_gpui::prelude::*;
 use crepuscularity_gpui::Icon;
 use gpui::{
-    actions, img, point, px, rgb, size, AnyElement, Bounds, KeyBinding, Render, RenderImage, Window,
-    WindowBounds, WindowOptions,
+    actions, point, px, rgb, size, AnyElement, Bounds, KeyBinding, Render, Window, WindowBounds,
+    WindowOptions,
 };
-use image::{Frame, RgbaImage};
+#[cfg(feature = "servo-render")]
+use gpui::{img, RenderImage};
+#[cfg(feature = "servo-render")]
+use image::RgbaImage;
+#[cfg(feature = "servo-render")]
 use std::sync::Arc;
 
 #[cfg(feature = "servo-render")]
@@ -35,19 +39,33 @@ actions!(
 );
 
 struct Tab {
+    #[allow(dead_code)]
     id: u64,
     url: String,
     title: String,
+    #[cfg(feature = "servo-render")]
+    frame_img: Option<Arc<RenderImage>>,
 }
 
 impl Tab {
     fn new(id: u64, url: &str) -> Self {
-        Self { id, url: url.to_string(), title: Self::title_from(url) }
+        Self {
+            id,
+            url: url.to_string(),
+            title: Self::title_from(url),
+            #[cfg(feature = "servo-render")]
+            frame_img: None,
+        }
     }
     fn title_from(url: &str) -> String {
         url.trim()
-            .strip_prefix("https://").or_else(|| url.trim().strip_prefix("http://"))
-            .unwrap_or(url.trim()).split('/').next().unwrap_or(url.trim()).to_string()
+            .strip_prefix("https://")
+            .or_else(|| url.trim().strip_prefix("http://"))
+            .unwrap_or(url.trim())
+            .split('/')
+            .next()
+            .unwrap_or(url.trim())
+            .to_string()
     }
 }
 
@@ -58,8 +76,6 @@ struct Chrome {
     url_text: String,
     #[cfg(feature = "servo-render")]
     servo_host: Option<ServoHost>,
-    #[cfg(feature = "servo-render")]
-    frame_img: Option<Arc<RenderImage>>,
 }
 
 impl Chrome {
@@ -67,13 +83,18 @@ impl Chrome {
         let url = "https://google.com".to_string();
         Self {
             tabs: vec![Tab::new(1, &url)],
-            active: 0, next_id: 2,
+            active: 0,
+            next_id: 2,
             url_text: url,
             #[cfg(feature = "servo-render")]
             servo_host: None,
-            #[cfg(feature = "servo-render")]
-            frame_img: None,
         }
+    }
+
+    fn init(&mut self, cx: &mut Context<Self>) {
+        let url = self.url_text.clone();
+        self.navigate_to(&url);
+        cx.notify();
     }
 
     fn navigate_to(&mut self, raw: &str) {
@@ -89,9 +110,9 @@ impl Chrome {
 
     #[cfg(feature = "servo-render")]
     fn servo_render(&mut self, url: &str) {
-        let host = self.servo_host.get_or_insert_with(|| {
-            ServoHost::launch(1280, 800).expect("ServoHost launch")
-        });
+        let host = self
+            .servo_host
+            .get_or_insert_with(|| ServoHost::launch(1280, 800).expect("ServoHost launch"));
         match host.navigate(url) {
             Ok(result) => {
                 if let Some(ref mut tab) = self.tabs.get_mut(self.active) {
@@ -104,7 +125,9 @@ impl Chrome {
                     let h = frame.height;
                     if let Some(rgba) = RgbaImage::from_raw(w, h, frame.pixels) {
                         let img_frame = image::Frame::new(rgba);
-                        self.frame_img = Some(Arc::new(RenderImage::new([img_frame])));
+                        if let Some(tab) = self.tabs.get_mut(self.active) {
+                            tab.frame_img = Some(Arc::new(RenderImage::new([img_frame])));
+                        }
                     }
                 }
             }
@@ -113,15 +136,20 @@ impl Chrome {
     }
 
     fn do_new_tab(&mut self, _: &NewTab, _: &mut Window, cx: &mut Context<Self>) {
-        let id = self.next_id; self.next_id += 1;
+        let id = self.next_id;
+        self.next_id += 1;
         let url = "https://google.com".to_string();
         self.tabs.push(Tab::new(id, &url));
         self.active = self.tabs.len() - 1;
-        self.url_text = url; cx.notify();
+        self.url_text = url.clone();
+        self.navigate_to(&url);
+        cx.notify();
     }
 
     fn do_close_tab(&mut self, _: &CloseTab, _: &mut Window, cx: &mut Context<Self>) {
-        if self.tabs.len() <= 1 { return; }
+        if self.tabs.len() <= 1 {
+            return;
+        }
         self.tabs.remove(self.active);
         self.active = self.active.min(self.tabs.len().saturating_sub(1));
         self.url_text.clone_from(&self.tabs[self.active].url);
@@ -129,13 +157,19 @@ impl Chrome {
     }
 
     fn select_tab(&mut self, idx: usize, cx: &mut Context<Self>) {
-        if idx >= self.tabs.len() || idx == self.active { return; }
+        if idx >= self.tabs.len() || idx == self.active {
+            return;
+        }
         self.active = idx;
         self.url_text.clone_from(&self.tabs[idx].url);
-        let url = self.url_text.clone();
-        cx.notify();
         #[cfg(feature = "servo-render")]
-        self.servo_render(&url);
+        {
+            let url = self.url_text.clone();
+            if self.tabs[idx].frame_img.is_none() {
+                self.servo_render(&url);
+            }
+        }
+        cx.notify();
     }
 
     fn do_reload(&mut self, _: &Reload, _: &mut Window, cx: &mut Context<Self>) {
@@ -150,10 +184,17 @@ impl Chrome {
 
 fn normalize_url(input: &str) -> String {
     let t = input.trim();
-    if t.is_empty() { return "about:blank".into(); }
-    if t.contains("://") || t.starts_with("about:") || t.starts_with("data:") { return t.to_string(); }
-    if t.contains('.') && !t.contains(' ') { format!("https://{t}") }
-    else { format!("https://duckduckgo.com/?q={}", t.replace(' ', "+")) }
+    if t.is_empty() {
+        return "about:blank".into();
+    }
+    if t.contains("://") || t.starts_with("about:") || t.starts_with("data:") {
+        return t.to_string();
+    }
+    if t.contains('.') && !t.contains(' ') {
+        format!("https://{t}")
+    } else {
+        format!("https://duckduckgo.com/?q={}", t.replace(' ', "+"))
+    }
 }
 
 fn make_icon(name: &'static str, color: u32) -> Icon {
@@ -167,40 +208,100 @@ impl Render for Chrome {
         // ── Sidebar tabs ──
         let mut tab_rows: Vec<AnyElement> = Vec::new();
         for (i, tab) in self.tabs.iter().enumerate() {
-            let sel = i == self.active; let idx = i;
+            let sel = i == self.active;
+            let idx = i;
             tab_rows.push(
                 div()
-                    .flex().flex_row().items_center().gap(px(8.)).w_full()
-                    .px(px(12.)).py(px(6.)).rounded(px(6.))
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(px(8.))
+                    .w_full()
+                    .px(px(12.))
+                    .py(px(6.))
+                    .rounded(px(6.))
                     .bg(rgb(if sel { HOVER } else { SIDEBAR_BG }))
                     .cursor_pointer()
                     .hover(|s| s.bg(rgb(HOVER)))
-                    .on_mouse_down(gpui::MouseButton::Left, cx.listener(
-                        move |this: &mut Chrome, _: &gpui::MouseDownEvent, _: &mut Window, cx: &mut Context<Chrome>| this.select_tab(idx, cx),
-                    ))
+                    .on_mouse_down(
+                        gpui::MouseButton::Left,
+                        cx.listener(
+                            move |this: &mut Chrome,
+                                  _: &gpui::MouseDownEvent,
+                                  _: &mut Window,
+                                  cx: &mut Context<Chrome>| {
+                                this.select_tab(idx, cx)
+                            },
+                        ),
+                    )
                     .child(make_icon("globe", TEXT_MUTED))
-                    .child(div().flex_1().min_w_0().overflow_hidden().text_sm().text_color(rgb(TEXT)).child(tab.title.clone()))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .overflow_hidden()
+                            .text_sm()
+                            .text_color(rgb(TEXT))
+                            .child(tab.title.clone()),
+                    )
                     .into_any_element(),
             );
         }
 
         let sidebar = div()
             .id("sidebar")
-            .flex().flex_col()
-            .w(px(SIDEBAR_W)).min_w(px(SIDEBAR_W))
-            .bg(rgb(SIDEBAR_BG)).border_r_1().border_color(rgb(BORDER))
-            .child(div().flex_1().flex().flex_col().pt(px(TRAFFIC_H)).gap(px(2.)).px(px(4.)).children(tab_rows))
+            .flex()
+            .flex_col()
+            .w(px(SIDEBAR_W))
+            .min_w(px(SIDEBAR_W))
+            .bg(rgb(SIDEBAR_BG))
+            .border_r_1()
+            .border_color(rgb(BORDER))
             .child(
-                div().flex().flex_row().items_center().gap(px(8.)).px(px(16.)).py(px(10.))
-                    .border_t_1().border_color(rgb(BORDER)).cursor_pointer()
+                div()
+                    .flex_1()
+                    .flex()
+                    .flex_col()
+                    .pt(px(TRAFFIC_H))
+                    .gap(px(2.))
+                    .px(px(4.))
+                    .children(tab_rows),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(px(8.))
+                    .px(px(16.))
+                    .py(px(10.))
+                    .border_t_1()
+                    .border_color(rgb(BORDER))
+                    .cursor_pointer()
+                    .on_mouse_down(
+                        gpui::MouseButton::Left,
+                        cx.listener(
+                            |this: &mut Chrome,
+                             _: &gpui::MouseDownEvent,
+                             window: &mut Window,
+                             cx: &mut Context<Chrome>| {
+                                this.do_new_tab(&NewTab, window, cx)
+                            },
+                        ),
+                    )
                     .child(make_icon("plus.circle", TEXT_MUTED))
                     .child(div().text_sm().text_color(rgb(TEXT_MUTED)).child("New Tab")),
             );
 
         // ── Content ──
         #[cfg(feature = "servo-render")]
-        let content: AnyElement = if let Some(ref render_image) = self.frame_img {
-            div().flex_1().w_full().bg(rgb(BG))
+        let frame_img = self.tabs.get(self.active).and_then(|t| t.frame_img.clone());
+        #[cfg(feature = "servo-render")]
+        let content: AnyElement = if let Some(ref render_image) = frame_img {
+            div()
+                .flex_1()
+                .w_full()
+                .bg(rgb(BG))
                 .child(img(render_image.clone()).w_full().h_full())
                 .into_any_element()
         } else {
@@ -213,21 +314,59 @@ impl Render for Chrome {
         // ── Topbar ──
         let topbar = div()
             .id("topbar")
-            .flex().flex_row().items_center().gap(px(2.)).h(px(TOPBAR_H)).px(px(8.)).py(px(4.))
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap(px(2.))
+            .h(px(TOPBAR_H))
+            .px(px(8.))
+            .py(px(4.))
             .bg(rgb(TOOLBAR_BG))
             .child(btn("chevron.backward"))
             .child(btn("chevron.forward"))
-            .child(btn("arrow.clockwise"))
+            .child(btn_with_action(
+                cx,
+                "arrow.clockwise",
+                |this, window, cx| this.do_reload(&Reload, window, cx),
+            ))
             .child(
-                div().flex_1().flex().flex_row().items_center().h(px(ADDR_H)).px(px(10.)).gap(px(6.))
-                    .rounded(px(7.)).bg(rgb(0x222224)).border_1().border_color(rgb(BORDER))
-                    .child(if secure { make_icon("lock.fill", 0x34d399) } else { make_icon("globe", TEXT_MUTED) })
-                    .child(div().flex_1().text_sm().text_color(rgb(if secure { 0x34d399 } else { TEXT })).overflow_hidden().child(self.url_text.clone())),
+                div()
+                    .flex_1()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .h(px(ADDR_H))
+                    .px(px(10.))
+                    .gap(px(6.))
+                    .rounded(px(7.))
+                    .bg(rgb(0x222224))
+                    .border_1()
+                    .border_color(rgb(BORDER))
+                    .child(if secure {
+                        make_icon("lock.fill", 0x34d399)
+                    } else {
+                        make_icon("globe", TEXT_MUTED)
+                    })
+                    .child(
+                        div()
+                            .flex_1()
+                            .text_sm()
+                            .text_color(rgb(if secure { 0x34d399 } else { TEXT }))
+                            .overflow_hidden()
+                            .child(self.url_text.clone()),
+                    ),
             )
-            .child(btn("plus"));
+            .child(btn_with_action(cx, "plus", |this, window, cx| {
+                this.do_new_tab(&NewTab, window, cx)
+            }));
 
         // ── Root layout ──
-        div().id("root").size_full().flex().flex_row().bg(rgb(BG))
+        div()
+            .id("root")
+            .size_full()
+            .flex()
+            .flex_row()
+            .bg(rgb(BG))
             .on_action(cx.listener(Self::do_new_tab))
             .on_action(cx.listener(Self::do_close_tab))
             .on_action(cx.listener(Self::do_nav))
@@ -235,17 +374,52 @@ impl Render for Chrome {
             .on_action(cx.listener(Self::do_reload))
             .on_action(cx.listener(Self::do_focus))
             .child(sidebar)
-            .child(div().flex_1().flex().flex_col()
-                .child(topbar)
-                .child(div().h(px(1.)).bg(rgb(BORDER)))
-                .child(content),
+            .child(
+                div()
+                    .flex_1()
+                    .flex()
+                    .flex_col()
+                    .child(topbar)
+                    .child(div().h(px(1.)).bg(rgb(BORDER)))
+                    .child(content),
             )
     }
 }
 
 fn btn(name: &'static str) -> impl IntoElement {
-    div().size(px(BTN_SIZE)).flex().items_center().justify_center().rounded(px(6.))
-        .hover(|s| s.bg(rgb(HOVER))).cursor_pointer()
+    div()
+        .size(px(BTN_SIZE))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(6.))
+        .hover(|s| s.bg(rgb(HOVER)))
+        .cursor_pointer()
+        .child(make_icon(name, TEXT_MUTED))
+}
+
+fn btn_with_action(
+    cx: &mut Context<Chrome>,
+    name: &'static str,
+    on_click: impl Fn(&mut Chrome, &mut Window, &mut Context<Chrome>) + 'static,
+) -> impl IntoElement {
+    div()
+        .size(px(BTN_SIZE))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(6.))
+        .hover(|s| s.bg(rgb(HOVER)))
+        .cursor_pointer()
+        .on_mouse_down(
+            gpui::MouseButton::Left,
+            cx.listener(
+                move |this: &mut Chrome,
+                      _: &gpui::MouseDownEvent,
+                      window: &mut Window,
+                      cx: &mut Context<Chrome>| on_click(this, window, cx),
+            ),
+        )
         .child(make_icon(name, TEXT_MUTED))
 }
 
@@ -273,21 +447,35 @@ fn main() {
                 appears_transparent: true,
                 traffic_light_position: {
                     #[cfg(target_os = "macos")]
-                    { Some(point(px(18.), px(18.))) }
+                    {
+                        Some(point(px(18.), px(18.)))
+                    }
                     #[cfg(not(target_os = "macos"))]
-                    { None }
+                    {
+                        None
+                    }
                 },
             }),
             window_min_size: Some(size(px(640.), px(400.))),
             app_id: Some("rv8.chrome".into()),
-            focus: true, show: true,
+            focus: true,
+            show: true,
             kind: gpui::WindowKind::Normal,
-            is_movable: true, is_resizable: true, is_minimizable: true,
+            is_movable: true,
+            is_resizable: true,
+            is_minimizable: true,
             display_id: None,
             window_background: gpui::WindowBackgroundAppearance::Opaque,
             window_decorations: None,
             tabbing_identifier: None,
         };
-        cx.open_window(opts, |_w, cx| cx.new(|_cx| Chrome::new())).unwrap();
+        cx.open_window(opts, |_w, cx| {
+            cx.new(|cx| {
+                let mut chrome = Chrome::new();
+                chrome.init(cx);
+                chrome
+            })
+        })
+        .unwrap();
     });
 }

@@ -331,7 +331,6 @@ impl ServoEmbedder {
         if let Some(ref mut servo) = self.servo {
             servo.handle_mouse_move(x, y);
             self.frame_generation = self.frame_generation.saturating_add(1);
-            return;
         }
 
         #[cfg(not(feature = "servo-render"))]
@@ -389,8 +388,8 @@ impl ServoEmbedder {
         if let Some(ref mut servo) = self.servo {
             servo.handle_focus(focused);
             self.frame_generation = self.frame_generation.saturating_add(1);
-            return;
         }
+        #[cfg(not(feature = "servo-render"))]
         debug!("Focus changed: {}", focused);
     }
 
@@ -400,8 +399,8 @@ impl ServoEmbedder {
         if let Some(ref mut servo) = self.servo {
             servo.scroll_by(delta_x, delta_y);
             self.frame_generation = self.frame_generation.saturating_add(1);
-            return;
         }
+        #[cfg(not(feature = "servo-render"))]
         debug!("Scroll: ({}, {})", delta_x, delta_y);
     }
 

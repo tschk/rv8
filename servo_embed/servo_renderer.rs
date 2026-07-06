@@ -256,7 +256,7 @@ impl ServoRenderer {
         self.webview
             .as_ref()
             .and_then(|webview| webview.page_title())
-            .unwrap_or_else(|| String::new())
+            .unwrap_or_default()
     }
 
     /// Evaluate JavaScript and return the result as a string.
@@ -589,10 +589,7 @@ mod tests {
             let g = ((color_bucket >> 8) & 0xFF) << 4;
             let b = (color_bucket & 0xFF) << 4;
             let pct = (*count as f64) / (total_mapped as f64) * 100.0;
-            println!(
-                "  [google]   {:.1}%  rgb({r},{g},{b})",
-                pct,
-            );
+            println!("  [google]   {:.1}%  rgb({r},{g},{b})", pct,);
         }
     }
 
@@ -617,9 +614,7 @@ mod tests {
             "expected 'Google' in title, got: {}",
             title
         );
-        let frame = renderer
-            .capture_frame(1)
-            .expect("frame after google.com");
+        let frame = renderer.capture_frame(1).expect("frame after google.com");
         let total = frame.pixels.len() / 4;
         let non_white = frame
             .pixels
@@ -707,8 +702,7 @@ impl ServoHost {
                 tx,
             })
             .map_err(|e| format!("ServoHost send: {e}"))?;
-        rx.recv()
-            .map_err(|e| format!("ServoHost recv: {e}"))?
+        rx.recv().map_err(|e| format!("ServoHost recv: {e}"))?
     }
 
     /// Shut down the renderer thread.

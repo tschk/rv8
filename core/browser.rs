@@ -582,7 +582,9 @@ mod tests {
         let (browser, _dir) = create_test_browser().await;
         let tab_id = TabId(42);
 
-        browser.handle_renderer_message(BrowserMessage::RendererCrashed { tab_id: 42 }).await;
+        browser
+            .handle_renderer_message(BrowserMessage::RendererCrashed { tab_id: 42 })
+            .await;
 
         // Tab doesn't exist; just checks no panic
         // Now test with an actual tab
@@ -590,14 +592,27 @@ mod tests {
         let (tx_to_renderer, _) = crate::ipc::channel::<crate::ipc::RendererMessage>().unwrap();
         let renderer_client = crate::ipc::RendererClient::new(3, tx_to_renderer);
         let network = browser.network.clone();
-        let tab = crate::core::Tab::new(tab_id, "https://example.com".into(), renderer_client, network).await.unwrap();
+        let tab = crate::core::Tab::new(
+            tab_id,
+            "https://example.com".into(),
+            renderer_client,
+            network,
+        )
+        .await
+        .unwrap();
         assert_eq!(tab.state(), &crate::core::TabState::New);
 
         // Insert tab into browser
-        browser.tabs.write().await.insert(tab_id, std::sync::Arc::new(tokio::sync::Mutex::new(tab)));
+        browser
+            .tabs
+            .write()
+            .await
+            .insert(tab_id, std::sync::Arc::new(tokio::sync::Mutex::new(tab)));
 
         // Send crash message
-        browser.handle_renderer_message(BrowserMessage::RendererCrashed { tab_id: 42 }).await;
+        browser
+            .handle_renderer_message(BrowserMessage::RendererCrashed { tab_id: 42 })
+            .await;
 
         // Verify tab is marked crashed
         let tabs = browser.tabs.read().await;
