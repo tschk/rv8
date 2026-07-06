@@ -2,12 +2,9 @@
 //! Build: cargo run --features chrome,servo-render --bin rv8-chrome
 //! Shell: cargo run --features chrome --bin rv8-chrome
 
-#[cfg(all(target_os = "macos", feature = "servo-render"))]
-use core_video::pixel_buffer::CVPixelBuffer;
 use crepuscularity_gpui::prelude::*;
 use crepuscularity_gpui::Icon;
-#[cfg(all(target_os = "macos", feature = "servo-render"))]
-use gpui::surface;
+
 use gpui::{
     actions, point, px, rgb, size, AnyElement, Bounds, KeyBinding, Render, Window, WindowBounds,
     WindowOptions,
@@ -49,8 +46,6 @@ struct Tab {
     id: u64,
     url: String,
     title: String,
-    #[cfg(all(target_os = "macos", feature = "servo-render"))]
-    surface: Option<CVPixelBuffer>,
     #[cfg(feature = "servo-render")]
     frame_img: Option<Arc<RenderImage>>,
 }
@@ -61,8 +56,6 @@ impl Tab {
             id,
             url: url.to_string(),
             title: Self::title_from(url),
-            #[cfg(all(target_os = "macos", feature = "servo-render"))]
-            surface: None,
             #[cfg(feature = "servo-render")]
             frame_img: None,
         }
@@ -134,14 +127,19 @@ impl Chrome {
     #[cfg(all(target_os = "macos", feature = "servo-render"))]
     fn update_surface(&mut self, cx: &mut Context<Self>) {
         if let Some(ref host) = self.servo_host {
-            match host.current_surface() {
-                Ok(Some(surface)) => {
+            match host.capture_frame() {
+                Ok(Some(frame)) => {
                     if let Some(tab) = self.tabs.get_mut(self.active) {
-                        tab.surface = Some(surface);
+                        if let Some(rgba) =
+                            RgbaImage::from_raw(frame.width, frame.height, frame.pixels)
+                        {
+                            tab.frame_img =
+                                Some(Arc::new(RenderImage::new([image::Frame::new(rgba)])));
+                        }
                     }
                 }
                 Ok(None) => {}
-                Err(e) => log::error!("ServoHost current_surface: {e}"),
+                Err(e) => log::error!("ServoHost capture_frame: {e}"),
             }
         }
         cx.notify();
@@ -443,18 +441,22 @@ impl Render for Chrome {
             );
 
         // ── Content ──
-        #[cfg(all(target_os = "macos", feature = "servo-render"))]
-        let content_surface = self.tabs.get(self.active).and_then(|t| t.surface.clone());
         #[cfg(feature = "servo-render")]
         let frame_img = self.tabs.get(self.active).and_then(|t| t.frame_img.clone());
 
         #[cfg(all(target_os = "macos", feature = "servo-render"))]
-        let content: AnyElement = {
-            let mut container = div()
+        let content: AnyElement = if let Some(ref render_image) = frame_img {
+            div()
                 .flex_1()
                 .w_full()
                 .overflow_hidden()
                 .bg(rgb(BG))
+                .child(
+                    img(render_image.clone())
+                        .w_full()
+                        .h_full()
+                        .object_fit(gpui::ObjectFit::Contain),
+                )
                 .on_mouse_move(cx.listener(
                     |this: &mut Chrome,
                      event: &gpui::MouseMoveEvent,
@@ -497,23 +499,9 @@ impl Render for Chrome {
                         this.handle_scroll(dx, dy, cx);
                     },
                 ))
-                .id("content");
-            if let Some(ref content_surface) = content_surface {
-                container = container.child(
-                    surface(content_surface.clone())
-                        .w_full()
-                        .h_full()
-                        .object_fit(gpui::ObjectFit::Contain),
-                );
-            } else if let Some(ref render_image) = frame_img {
-                container = container.child(
-                    img(render_image.clone())
-                        .w_full()
-                        .h_full()
-                        .object_fit(gpui::ObjectFit::Contain),
-                );
-            }
-            container.into_any_element()
+                .into_any_element()
+        } else {
+            div().flex_1().w_full().bg(rgb(BG)).into_any_element()
         };
 
         #[cfg(all(not(target_os = "macos"), feature = "servo-render"))]
