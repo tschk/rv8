@@ -590,7 +590,7 @@ mod tests {
         let (tx_to_renderer, _) = crate::ipc::channel::<crate::ipc::RendererMessage>().unwrap();
         let renderer_client = crate::ipc::RendererClient::new(3, tx_to_renderer);
         let network = browser.network.clone();
-        let mut tab = crate::core::Tab::new(tab_id, "https://example.com".into(), renderer_client, network).await.unwrap();
+        let tab = crate::core::Tab::new(tab_id, "https://example.com".into(), renderer_client, network).await.unwrap();
         assert_eq!(tab.state(), &crate::core::TabState::New);
 
         // Insert tab into browser

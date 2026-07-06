@@ -463,38 +463,130 @@ mod tests {
         );
     }
 
+    /// Probe a page's HTML depth and JS capability.
+    /// Not a pass/fail test — it inspects what Servo receives and dumps diagnostics.
+    pub fn diagnose_page(renderer: &mut ServoRenderer, label: &str) {
+        // Phase 1: ES syntax baseline — no optional chaining, no destructuring
+        // to rule out parser issues
+        let raw_checks = [
+            ("typeof document !== 'undefined'", "has_document"),
+            ("typeof document.body", "typeof_body"),
+            ("typeof document.documentElement", "typeof_htmlel"),
+            ("typeof document.getElementById", "typeof_getId"),
+            ("typeof document.querySelector", "typeof_qs"),
+            ("typeof document.querySelectorAll", "typeof_qsa"),
+            ("typeof navigator", "typeof_nav"),
+            ("typeof window", "typeof_win"),
+            ("typeof window.innerWidth", "typeof_iw"),
+            ("typeof window.innerHeight", "typeof_ih"),
+            ("typeof document.cookie", "typeof_cookie"),
+            ("typeof fetch", "typeof_fetch"),
+            ("typeof Promise === 'function'", "has_Promise"),
+            ("typeof Symbol === 'function'", "has_Symbol"),
+            ("'serviceWorker' in window", "has_sw"),
+            ("typeof Proxy === 'function'", "has_Proxy"),
+        ];
+        for (script, key) in &raw_checks {
+            match renderer.evaluate_script_sync(script) {
+                Ok(v) => println!("  [{label}] {key} = {v}"),
+                Err(e) => println!("  [{label}] {key} = ERR: {e}"),
+            }
+        }
+        // Phase 2: raw value tests — what does Servo actually return?
+        // These mirror google_com_renders_homepage to isolate state issues
+        let dom_checks = [
+            ("document.title", "doc_title_raw"),
+            ("typeof document", "typeof_doc"),
+            ("typeof window", "typeof_win2"),
+            ("typeof location", "typeof_loc"),
+            ("typeof navigator", "typeof_nav2"),
+            ("typeof this", "typeof_this"),
+            ("this === undefined", "this_is_undef"),
+            ("typeof globalThis", "typeof_global"),
+            ("String(1+1)", "str_2"),
+            ("typeof (1+1)", "typeof_2"),
+        ];
+        for (script, key) in &dom_checks {
+            match renderer.evaluate_script_sync(script) {
+                Ok(v) => println!("  [{label}] {key} = {v}"),
+                Err(e) => println!("  [{label}] {key} = ERR: {e}"),
+            }
+        }
+    }
+
     #[test]
-    #[ignore = "slow network integration; run with --ignored"]
-    fn undivisible_dev_renders_non_error_page() {
+    #[ignore = "diagnose google.com rendering"]
+    fn diagnose_google() {
         let mut renderer = ServoRenderer::new(1280, 800).expect("servo renderer");
         renderer
-            .navigate("https://undivisible.dev")
-            .expect("navigate undivisible.dev");
+            .navigate("https://google.com")
+            .expect("navigate google.com");
+        diagnose_page(&mut renderer, "google");
+        let frame = renderer.capture_frame(1).expect("frame");
+        let total = frame.pixels.len() / 4;
+        let rgba = &frame.pixels;
+        let mut color_buckets: std::collections::HashMap<u32, u32> =
+            std::collections::HashMap::new();
+        for px in rgba.chunks_exact(4) {
+            let key = ((px[0] as u32) << 16) | ((px[1] as u32) << 8) | (px[2] as u32);
+            *color_buckets.entry(key >> 4).or_insert(0) += 1; // bucket by upper 4 bits per channel
+        }
+        let total_mapped: u32 = color_buckets.values().sum();
+        println!(
+            "  [google] frame {}x{} = {} pixels, {} unique color buckets",
+            frame.width,
+            frame.height,
+            total,
+            color_buckets.len()
+        );
+        let mut sorted: Vec<_> = color_buckets.into_iter().collect();
+        sorted.sort_by_key(|&(_, count)| std::cmp::Reverse(count));
+        for (color_bucket, count) in sorted.iter().take(12) {
+            let r = (color_bucket >> 16) << 4;
+            let g = ((color_bucket >> 8) & 0xFF) << 4;
+            let b = (color_bucket & 0xFF) << 4;
+            let pct = (*count as f64) / (total_mapped as f64) * 100.0;
+            println!(
+                "  [google]   {:.1}%  rgb({r},{g},{b})",
+                pct,
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "google.com — run with --ignored to check google rendering"]
+    fn google_com_renders_homepage() {
+        let mut renderer = ServoRenderer::new(1280, 800).expect("servo renderer");
+        renderer
+            .navigate("https://google.com")
+            .expect("navigate google.com");
         assert_eq!(
             renderer
                 .evaluate_script_sync("document.readyState")
                 .expect("ready state"),
             "complete"
         );
-        assert_eq!(
-            renderer
-                .evaluate_script_sync("document.title")
-                .expect("title"),
-            "undivisible.dev"
+        let title = renderer
+            .evaluate_script_sync("document.title")
+            .expect("title");
+        assert!(
+            title.contains("Google"),
+            "expected 'Google' in title, got: {}",
+            title
         );
         let frame = renderer
             .capture_frame(1)
-            .expect("frame after undivisible.dev");
-        let dark_pixels = frame
+            .expect("frame after google.com");
+        let total = frame.pixels.len() / 4;
+        let non_white = frame
             .pixels
             .chunks_exact(4)
-            .filter(|px| px[0] < 48 && px[1] < 48 && px[2] < 48)
+            .filter(|px| px[0] > 240 && px[1] > 240 && px[2] > 240)
             .count();
-        let total = frame.pixels.len() / 4;
-        let visible_pixels = total - dark_pixels;
+        let colored = total - non_white;
         assert!(
-            visible_pixels > 100,
-            "expected visible page pixels (got {visible_pixels}/{total} non-dark)"
+            colored > 50,
+            "expected visible colored pixels (Google logo/buttons), got {colored}/{total}"
         );
     }
 }

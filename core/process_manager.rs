@@ -13,7 +13,9 @@ use tokio::sync::Mutex;
 
 use super::TabId;
 use crate::ipc::{self, BrowserMessage, IpcServer, RendererClient, RendererMessage};
+#[cfg(not(feature = "servo-render"))]
 use crate::renderer::RendererProcess;
+#[cfg(not(feature = "servo-render"))]
 use crate::servo_embed::ServoConfig;
 
 /// Process manager for spawning and managing child processes
