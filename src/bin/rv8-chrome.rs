@@ -9,8 +9,11 @@ use gpui::{
     WindowBounds, WindowOptions,
 };
 
+#[cfg(feature = "servo-render")]
 use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(feature = "servo-render")]
 use std::sync::{Arc, Mutex};
+#[cfg(feature = "servo-render")]
 use std::thread;
 
 #[cfg(feature = "servo-render")]
@@ -19,15 +22,12 @@ use rv8::servo_embed::ServoRenderer;
 // ── Theme (pocb dark) ──
 const BG: u32 = 0x000000;
 const TOOLBAR_BG: u32 = 0x1c1c1e;
-const TOOLBAR_BG_ALPHA: u32 = 0xeb;
 const SIDEBAR_BG: u32 = 0x000000;
 const HOVER: u32 = 0x2a2a2a;
-const RAISED: u32 = 0x3a3a3c;
 const BORDER: u32 = 0x38383a;
 const TEXT: u32 = 0xe4e4e7;
 const TEXT_MUTED: u32 = 0x8e8e93;
 const TEXT_URL: u32 = 0x34d399;
-const ACCENT: u32 = 0x007aff;
 const TAB_BG: u32 = 0x000000;
 const ADDR_BG: u32 = 0x222224;
 const ADDR_RADIUS: f32 = 7.0;
@@ -39,7 +39,6 @@ const BTN_RADIUS: f32 = 6.0;
 const ADDR_H: f32 = 28.0;
 const SIDEBAR_W: f32 = 240.0;
 const TRAFFIC_W: f32 = 72.0;
-const WEB_RADIUS: f32 = 10.0;
 
 actions!(
     rv8_chrome,
@@ -101,6 +100,7 @@ impl FrameStream {
 
 // ── Tab ──
 struct Tab {
+    #[allow(dead_code)]
     id: u64,
     url: String,
     title: String,
@@ -158,7 +158,6 @@ impl Chrome {
         }
     }
 
-    fn active_tab(&self) -> Option<&Tab> { self.tabs.get(self.active) }
     fn active_tab_mut(&mut self) -> Option<&mut Tab> { self.tabs.get_mut(self.active) }
 
     fn navigate_to(&mut self, raw: &str) {
@@ -231,7 +230,7 @@ fn normalize_url(input: &str) -> String {
 }
 
 // ── Nav button builder ──
-fn mk_btn(name: &'static str, tip: &'static str) -> impl IntoElement {
+fn mk_btn(name: &'static str) -> impl IntoElement {
     div()
         .size(px(BTN_SIZE))
         .flex()
@@ -320,10 +319,10 @@ impl Render for Chrome {
             .px(px(8.))
             .py(px(4.))
             .bg(rgb(TOOLBAR_BG))
-            .child(mk_btn("sidebar.left", "Toggle Sidebar"))
-            .child(mk_btn("chevron.backward", "Back"))
-            .child(mk_btn("chevron.forward", "Forward"))
-            .child(mk_btn("arrow.clockwise", "Reload"))
+.child(mk_btn("sidebar.left"))
+            .child(mk_btn("chevron.backward"))
+            .child(mk_btn("chevron.forward"))
+            .child(mk_btn("arrow.clockwise"))
             .child(
                 // AddrPill
                 div()
