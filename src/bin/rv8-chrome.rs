@@ -10,14 +10,7 @@ use gpui::{
 };
 
 #[cfg(feature = "servo-render")]
-use std::sync::atomic::{AtomicBool, Ordering};
-#[cfg(feature = "servo-render")]
-use std::sync::{Arc, Mutex};
-#[cfg(feature = "servo-render")]
-use std::thread;
-
-#[cfg(feature = "servo-render")]
-use rv8::servo_embed::ServoRenderer;
+use rv8::servo_embed::ServoHost;
 
 // ── Theme (pocb dark) ──
 const BG: u32 = 0x000000;
@@ -45,58 +38,7 @@ actions!(
     [NewTab, CloseTab, GoBack, GoForward, Reload, FocusUrl, ToggleSidebar]
 );
 
-// ── Frame data bridge Servo thread → gpui ──
-#[cfg(feature = "servo-render")]
-struct FrameStream {
-    latest: Arc<Mutex<Option<(u32, u32, Vec<u8>)>>>,
-    pending: Arc<AtomicBool>,
-    renderer: Arc<Mutex<Option<ServoRenderer>>>,
-    loading: Arc<AtomicBool>,
-    title: Arc<Mutex<String>>,
-}
 
-#[cfg(feature = "servo-render")]
-impl FrameStream {
-    fn new() -> Self {
-        Self {
-            latest: Arc::new(Mutex::new(None)),
-            pending: Arc::new(AtomicBool::new(false)),
-            renderer: Arc::new(Mutex::new(None)),
-            loading: Arc::new(AtomicBool::new(false)),
-            title: Arc::new(Mutex::new(String::new())),
-        }
-    }
-
-    fn navigate(&self, url: &str) {
-        let url = url.to_string();
-        let latest = self.latest.clone();
-        let pending = self.pending.clone();
-        let renderer = self.renderer.clone();
-        let loading = self.loading.clone();
-        let title = self.title.clone();
-
-        loading.store(true, Ordering::Relaxed);
-        thread::spawn(move || {
-            let sv_w = 1280u32;
-            let sv_h = 800u32;
-            let mut r = match ServoRenderer::new(sv_w, sv_h) {
-                Ok(r) => r,
-                Err(e) => { log::error!("ServoRenderer: {e}"); return; }
-            };
-            if let Err(e) = r.navigate(&url) {
-                log::error!("navigate: {e}");
-                return;
-            }
-            *title.lock().unwrap() = r.title();
-            if let Some(frame) = r.capture_frame(1) {
-                *latest.lock().unwrap() = Some((frame.width, frame.height, frame.pixels));
-            }
-            *renderer.lock().unwrap() = Some(r);
-            loading.store(false, Ordering::Relaxed);
-            pending.store(true, Ordering::Relaxed);
-        });
-    }
-}
 
 // ── Tab ──
 struct Tab {
@@ -104,9 +46,6 @@ struct Tab {
     id: u64,
     url: String,
     title: String,
-    loading: bool,
-    #[cfg(feature = "servo-render")]
-    stream: FrameStream,
 }
 
 impl Tab {
@@ -115,9 +54,6 @@ impl Tab {
             id,
             url: url.to_string(),
             title: Self::disp_title(url),
-            loading: false,
-            #[cfg(feature = "servo-render")]
-            stream: FrameStream::new(),
         }
     }
 
@@ -141,7 +77,7 @@ struct Chrome {
     url_text: String,
     sidebar_visible: bool,
     #[cfg(feature = "servo-render")]
-    pending_frames: Vec<(usize, u32, u32, Vec<u8>)>,
+    servo_host: Option<ServoHost>,
 }
 
 impl Chrome {
@@ -154,7 +90,7 @@ impl Chrome {
             url_text: url.clone(),
             sidebar_visible: false,
             #[cfg(feature = "servo-render")]
-            pending_frames: Vec::new(),
+            servo_host: None,
         }
     }
 
@@ -166,9 +102,25 @@ impl Chrome {
         if let Some(tab) = self.active_tab_mut() {
             tab.url = url.clone();
             tab.title = Tab::disp_title(&url);
-            tab.loading = true;
-            #[cfg(feature = "servo-render")]
-            tab.stream.navigate(&url);
+        }
+        #[cfg(feature = "servo-render")]
+        if self.servo_host.is_none() {
+            if let Ok(host) = ServoHost::launch(1280, 800) {
+                self.servo_host = Some(host);
+            }
+        }
+        #[cfg(feature = "servo-render")]
+        if let Some(ref host) = self.servo_host {
+            match host.navigate(&url) {
+                Ok(result) => {
+                    if let Some(tab) = self.active_tab_mut() {
+                        if !result.title.is_empty() {
+                            tab.title = result.title;
+                        }
+                    }
+                }
+                Err(e) => log::error!("ServoHost navigate: {e}"),
+            }
         }
     }
 
@@ -292,7 +244,7 @@ impl Render for Chrome {
                         .overflow_hidden()
                         .text_sm()
                         .text_color(rgb(TEXT))
-                        .child(if tab.loading { format!("◌ {}", tab.title) } else { tab.title.clone() }),
+                        .child(tab.title.clone()),
                 )
                 .into_any_element();
 

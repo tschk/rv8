@@ -634,6 +634,89 @@ mod tests {
     }
 }
 
+// ── Thread-safe ServoHost ──
+// ServoRenderer uses Rc internally (!Send). ServoHost spawns it on a
+// dedicated OS thread so the handle is Send + Sync for gpui/async use.
+
+use std::sync::mpsc;
+
+/// Result from a Servo navigation command.
+pub struct ServoHostResult {
+    pub title: String,
+    pub frame: Option<RenderFrame>,
+}
+
+enum ServoCmd {
+    Navigate {
+        url: String,
+        tx: mpsc::Sender<Result<ServoHostResult, String>>,
+    },
+    Shutdown,
+}
+
+/// Thread-safe handle to a Servo renderer on a dedicated thread.
+/// Clone to upgrade to multiple command producers.
+#[derive(Clone)]
+pub struct ServoHost {
+    tx: mpsc::Sender<ServoCmd>,
+}
+
+impl ServoHost {
+    /// Launch a Servo renderer thread and return a handle.
+    pub fn launch(width: u32, height: u32) -> Result<Self, String> {
+        let (tx, rx) = mpsc::channel::<ServoCmd>();
+        let handle = Self { tx };
+        let rx_handle = rx;
+        // ponytail: spawn a dedicated thread; Servo's Rc types live here.
+        thread::Builder::new()
+            .name("servo-renderer".into())
+            .spawn(move || {
+                let mut renderer = match ServoRenderer::new(width, height) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        log::error!("ServoHost: init failed: {e}");
+                        return;
+                    }
+                };
+                while let Ok(cmd) = rx_handle.recv() {
+                    match cmd {
+                        ServoCmd::Shutdown => break,
+                        ServoCmd::Navigate { url, tx } => {
+                            let result = (|| -> Result<ServoHostResult, String> {
+                                renderer.navigate(&url)?;
+                                let title = renderer.title();
+                                let frame = renderer.capture_frame(1);
+                                Ok(ServoHostResult { title, frame })
+                            })();
+                            let _ = tx.send(result);
+                        }
+                    }
+                }
+                log::info!("ServoHost: thread exiting");
+            })
+            .map_err(|e| format!("ServoHost thread spawn: {e}"))?;
+        Ok(handle)
+    }
+
+    /// Navigate to a URL and wait for the result.
+    pub fn navigate(&self, url: &str) -> Result<ServoHostResult, String> {
+        let (tx, rx) = mpsc::channel();
+        self.tx
+            .send(ServoCmd::Navigate {
+                url: url.to_string(),
+                tx,
+            })
+            .map_err(|e| format!("ServoHost send: {e}"))?;
+        rx.recv()
+            .map_err(|e| format!("ServoHost recv: {e}"))?
+    }
+
+    /// Shut down the renderer thread.
+    pub fn shutdown(&self) {
+        let _ = self.tx.send(ServoCmd::Shutdown);
+    }
+}
+
 fn build_click_script(x: f32, y: f32) -> String {
     let mut s = String::with_capacity(256);
     s.push_str("var e=document.elementFromPoint(");

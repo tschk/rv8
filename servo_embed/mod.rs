@@ -33,6 +33,8 @@ pub mod parser;
 #[cfg(feature = "servo-render")]
 mod servo_renderer;
 #[cfg(feature = "servo-render")]
+pub use servo_renderer::{ServoHost, ServoRenderer};
+#[cfg(feature = "servo-render")]
 pub mod viewport;
 #[cfg(not(feature = "servo-render"))]
 pub mod web_apis;
