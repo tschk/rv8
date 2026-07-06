@@ -6,6 +6,7 @@ use gpui::{
     actions, point, px, rgb, size, Bounds, KeyBinding, Render, Window,
     WindowBounds, WindowOptions,
 };
+use crepuscularity_gpui::Icon;
 
 actions!(
     rv8_chrome,
@@ -212,7 +213,7 @@ impl Render for Chrome {
             .children(tab_els);
 
         // Navigation
-        let nav_btn = |label: &'static str| {
+        let mk_nav = |name: &'static str| {
             div()
                 .size(px(32.))
                 .flex()
@@ -222,7 +223,7 @@ impl Render for Chrome {
                 .text_color(rgb(TEXT_MUTED))
                 .hover(|s| s.bg(rgb(BG_HOVER)).text_color(rgb(TEXT)))
                 .cursor_pointer()
-                .child(label)
+                .child(Icon::new(name).size(px(16.)))
         };
 
         let url_bar = div()
@@ -236,12 +237,7 @@ impl Render for Chrome {
             .bg(rgb(BG))
             .border_1()
             .border_color(rgb(BORDER))
-            .child(
-                div()
-                    .text_xs()
-                    .px(px(4.))
-                    .child(if secure { "🔒" } else { "⊞" }),
-            )
+            .child(Icon::new(if secure { "lock.fill" } else { "globe" }).size(px(12.)))
             .child(
                 div()
                     .flex_1()
@@ -263,9 +259,9 @@ impl Render for Chrome {
             .bg(rgb(TOOLBAR))
             .border_b_1()
             .border_color(rgb(BORDER))
-            .child(nav_btn("◀"))
-            .child(nav_btn("▶"))
-            .child(nav_btn("⟳"))
+            .child(mk_nav("chevron.left"))
+            .child(mk_nav("chevron.right"))
+            .child(mk_nav("arrow.clockwise"))
             .child(url_bar)
             .child(
                 div()
@@ -277,7 +273,7 @@ impl Render for Chrome {
                     .text_color(rgb(TEXT_MUTED))
                     .hover(|s| s.bg(rgb(BG_HOVER)).text_color(rgb(TEXT)))
                     .cursor_pointer()
-                    .child("+"),
+                    .child(Icon::new("plus").size(px(14.))),
             );
 
         let content = div().flex_1().w_full().bg(rgb(TAB_BG));
