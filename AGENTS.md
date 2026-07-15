@@ -1,6 +1,6 @@
 # RV8 contributor guide
 
-RV8 is a multi-process browser **engine** (Servo rendering + V8 JS). Like an AOSP base platform crate: storage, IPC, renderer, networking — **no** cross-device sync, **no** `mono-protocol`, **no** gateway or mesh.
+RV8 is a multi-process browser **engine** (Servo rendering + V8 JS via `js_stub`/`soliloquy_v8`; no SpiderMonkey/mozjs). Like an AOSP base platform crate: storage, IPC, renderer, networking — **no** cross-device sync, **no** `mono-protocol`, **no** gateway or mesh.
 
 Product sync and adapters live only in [`atechnology-company/mono`](https://github.com/atechnology-company/mono) (`crates/mono-adapters`, feature `rv8`).
 

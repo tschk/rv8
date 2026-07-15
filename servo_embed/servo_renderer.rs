@@ -797,7 +797,7 @@ mod tests {
             renderer
                 .evaluate_script_sync("window.__soliloquyEngineBackend")
                 .expect("soliloquy v8 backend marker"),
-            "v8-experimental"
+            "v8"
         );
         assert_eq!(
             renderer
