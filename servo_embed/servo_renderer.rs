@@ -534,22 +534,20 @@ impl ServoRenderer {
         }
     }
 
-    /// Evaluate JavaScript in the page's window scope by resolving globals
-    /// from `globalThis`. This fixes `typeof document`, `window`, `navigator`, `fetch`
-    /// returning `undefined` in Servo's default evaluation scope.
+    /// Evaluate JavaScript against linked renderer/engine state.
+    /// Known live-DOM bridge properties sync first; other scripts fall through raw eval.
     pub fn evaluate_in_page_scope(&mut self, script: &str) -> Result<String, String> {
-        // ponytail: assign globals from globalThis to local vars so bare `document`,
-        // `window`, `navigator`, `fetch` resolve. Fallback to raw if wrapper fails.
+        if script_needs_page_dom_bridge(script) {
+            return self.evaluate_dom_via_bridge(script);
+        }
+        // ponytail: keep legacy wrapper for constellation/mozjs fall-through paths.
         let wrapped = format!(
             "(function(){{var w=globalThis,d=w.document,l=w.location,n=w.navigator,f=w.fetch;return eval({});}}).call(globalThis)",
             serde_json::to_string(script).unwrap_or_else(|_| format!("{:?}", script))
         );
         match self.evaluate_raw(&wrapped) {
-            Ok(v) => Ok(v),
-            Err(e) => {
-                log::warn!("page-scope eval fallback to raw: {e}");
-                self.evaluate_raw(script)
-            }
+            Ok(v) if v != "undefined" => Ok(v),
+            Ok(_) | Err(_) => self.evaluate_raw(script),
         }
     }
 
@@ -587,6 +585,12 @@ impl ServoRenderer {
 
     pub fn evaluate_script_value_sync(&mut self, script: &str) -> Result<JsValue, String> {
         use std::sync::mpsc;
+
+        if script_needs_page_dom_bridge(script) {
+            if let Some(webview) = &self.webview {
+                sync_soliloquy_webview_snapshot(webview);
+            }
+        }
 
         let (tx, rx) = mpsc::channel();
         let Some(webview) = &self.webview else {
@@ -795,6 +799,25 @@ mod tests {
                 .expect("soliloquy v8 backend marker"),
             "v8-experimental"
         );
+        assert_eq!(
+            renderer
+                .evaluate_script_sync("window.__soliloquyEngineBridgeReady")
+                .expect("bridge ready after snapshot sync"),
+            "true"
+        );
+        let href = renderer
+            .evaluate_script_sync("location.href")
+            .expect("location.href via synced bridge");
+        assert!(
+            href.starts_with("data:text/html"),
+            "expected data URL href, got: {href}"
+        );
+        assert_eq!(
+            renderer
+                .evaluate_in_page_scope("document.title")
+                .expect("page-scope title uses bridge"),
+            "RV8 Link"
+        );
     }
 
     /// Probe a page's HTML depth and JS capability.
@@ -955,6 +978,10 @@ enum ServoCmd {
         url: String,
         tx: mpsc::Sender<Result<ServoHostResult, String>>,
     },
+    EvaluateScript {
+        script: String,
+        tx: mpsc::Sender<Result<String, String>>,
+    },
     MouseMove {
         x: f32,
         y: f32,
@@ -1016,6 +1043,9 @@ impl ServoHost {
                             })();
                             let _ = tx.send(result);
                         }
+                        ServoCmd::EvaluateScript { script, tx } => {
+                            let _ = tx.send(renderer.evaluate_script_sync(&script));
+                        }
                         ServoCmd::MouseMove { x, y } => {
                             renderer.handle_mouse_move(x, y);
                         }
@@ -1049,6 +1079,18 @@ impl ServoHost {
         self.tx
             .send(ServoCmd::Navigate {
                 url: url.to_string(),
+                tx,
+            })
+            .map_err(|e| format!("ServoHost send: {e}"))?;
+        rx.recv().map_err(|e| format!("ServoHost recv: {e}"))?
+    }
+
+    /// Evaluate JavaScript on the renderer thread through the linked Soliloquy V8 path.
+    pub fn evaluate_script(&self, script: &str) -> Result<String, String> {
+        let (tx, rx) = mpsc::channel();
+        self.tx
+            .send(ServoCmd::EvaluateScript {
+                script: script.to_string(),
                 tx,
             })
             .map_err(|e| format!("ServoHost send: {e}"))?;
