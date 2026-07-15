@@ -818,9 +818,56 @@ mod tests {
                 .expect("page-scope title uses bridge"),
             "RV8 Link"
         );
+        // ── extended: V8 realm + polyfill coverage ──
+        assert_eq!(
+            renderer
+                .evaluate_script_sync("typeof Promise")
+                .expect("Promise type"),
+            "function"
+        );
+        assert_eq!(
+            renderer
+                .evaluate_script_sync("JSON.stringify({a:1})")
+                .expect("JSON.stringify"),
+            "{\"a\":1}"
+        );
+        assert_eq!(
+            renderer
+                .evaluate_script_sync("[1,2,3].length")
+                .expect("array length"),
+            "3"
+        );
+        assert_eq!(
+            renderer
+                .evaluate_script_sync("Object.keys({a:1,b:2}).length")
+                .expect("Object.keys"),
+            "2"
+        );
+        assert_eq!(
+            renderer
+                .evaluate_script_sync("typeof Symbol")
+                .expect("Symbol type"),
+            "function"
+        );
+        assert_eq!(
+            renderer
+                .evaluate_script_sync("typeof Map")
+                .expect("Map type"),
+            "function"
+        );
+        assert_eq!(
+            renderer
+                .evaluate_script_sync("typeof Set")
+                .expect("Set type"),
+            "function"
+        );
+        assert_eq!(
+            renderer
+                .evaluate_script_sync("typeof Proxy")
+                .expect("Proxy type"),
+            "function"
+        );
     }
-
-    /// Probe a page's HTML depth and JS capability.
     /// Not a pass/fail test — it inspects what Servo receives and dumps diagnostics.
     pub fn diagnose_page(renderer: &mut ServoRenderer, label: &str) {
         // Phase 1: ES syntax baseline — no optional chaining, no destructuring

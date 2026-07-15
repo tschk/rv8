@@ -80,24 +80,48 @@ pub const SCRIPT: &str = r#"
     };
   }
 
-  // ── console — polyfill missing methods ──
+  // ── console — route to Rust tracing::info! via __rv8ConsoleLog ──
   if (typeof root.console === "undefined") {
     root.console = {};
   }
   var c = root.console;
-  var noop = function () {};
-  var methods = ["log","warn","error","info","debug","trace","dir","group","groupEnd","time","timeEnd","assert"];
-  for (var i = 0; i < methods.length; i++) {
-    if (typeof c[methods[i]] === "undefined") c[methods[i]] = noop;
+  function fmtArgs(args) {
+    var parts = [];
+    for (var i = 0; i < args.length; i++) {
+      var v = args[i];
+      if (typeof v === "undefined") parts.push("undefined");
+      else if (v === null) parts.push("null");
+      else if (typeof v === "string") parts.push(v);
+      else if (typeof v === "object") {
+        try { parts.push(JSON.stringify(v)); } catch (_) { parts.push(String(v)); }
+      } else parts.push(String(v));
+    }
+    return parts.join(" ");
   }
+  function makeLog(level) {
+    return function () { var msg = fmtArgs(arguments); if (msg && typeof __rv8ConsoleLog === "function") __rv8ConsoleLog(level, msg); };
+  }
+  c.log = makeLog("info");
+  c.info = makeLog("info");
+  c.warn = makeLog("warn");
+  c.error = makeLog("error");
+  c.debug = makeLog("debug");
+  c.trace = makeLog("trace");
+  c.dir = c.log;
+  c.group = function () {};
+  c.groupEnd = function () {};
+  c.time = function () {};
+  c.timeEnd = function () {};
+  c.assert = function (cond) { if (!cond) c.error("assertion failed"); };
 
-  // ── setTimeout / clearTimeout ──
+  // ── setTimeout / setInterval — fire callbacks via microtask ──
   if (typeof root.setTimeout === "undefined") {
     var timerId = 1;
     var timers = {};
     root.setTimeout = function (fn, ms) {
       var id = timerId++;
-      timers[id] = { fn: fn, interval: false };
+      timers[id] = { fn: fn, interval: false, delay: Math.max(ms || 0, 0) };
+      scheduleTimerTick();
       return id;
     };
     root.clearTimeout = function (id) {
@@ -105,12 +129,29 @@ pub const SCRIPT: &str = r#"
     };
     root.setInterval = function (fn, ms) {
       var id = timerId++;
-      timers[id] = { fn: fn, interval: true };
+      timers[id] = { fn: fn, interval: true, delay: Math.max(ms || 1, 1) };
+      scheduleTimerTick();
       return id;
     };
-    root.clearInterval = function (id) {
-      delete timers[id];
-    };
+    root.clearInterval = root.clearTimeout;
+    var tickScheduled = false;
+    function scheduleTimerTick() {
+      if (tickScheduled) return;
+      tickScheduled = true;
+      Promise.resolve().then(function () {
+        tickScheduled = false;
+        var now = Date.now();
+        var ids = Object.keys(timers);
+        for (var i = 0; i < ids.length; i++) {
+          var t = timers[ids[i]];
+          if (!t) continue;
+          try {
+            if (typeof t.fn === "function") t.fn();
+          } catch (_) {}
+          if (!t.interval) delete timers[ids[i]];
+        }
+      });
+    }
   }
 
   // ── fetch — polyfill via XMLHttpRequest ──
