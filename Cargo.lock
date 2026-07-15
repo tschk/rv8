@@ -712,12 +712,6 @@ checksum = "fd307490d624467aa6f74b0eabb77633d1f758a7b25f12bceb0b22e08d9726f6"
 
 [[package]]
 name = "base64"
-version = "0.21.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9d297deb1925b89f2ccc13d7635fa0714f12c87adce1c75356b39ca9b7178567"
-
-[[package]]
-name = "base64"
 version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
@@ -1452,7 +1446,7 @@ version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d348c3856ad6a6b957d69dc8cf93e66fe9be5a7657fdd7028b1a56d2775e3fce"
 dependencies = [
- "base64 0.22.1",
+ "base64",
  "bitflags 2.13.0",
  "once_cell",
  "percent-encoding",
@@ -1676,9 +1670,10 @@ dependencies = [
 
 [[package]]
 name = "crepuscularity-core"
-version = "0.4.18"
+version = "0.4.22"
 dependencies = [
  "notify",
+ "serde_json",
  "sha2 0.11.0",
  "thiserror 2.0.18",
  "toml 1.1.2+spec-1.1.0",
@@ -1687,23 +1682,19 @@ dependencies = [
 
 [[package]]
 name = "crepuscularity-gpui"
-version = "0.5.0"
+version = "0.5.5"
 dependencies = [
  "crepuscularity-core",
  "crepuscularity-runtime",
  "crepuscularity_macros",
  "gpui",
  "gpui-symbols",
- "hdrhistogram",
- "log",
  "pollster 0.4.0",
- "schemars",
- "serde",
 ]
 
 [[package]]
 name = "crepuscularity-runtime"
-version = "0.4.12"
+version = "0.4.15"
 dependencies = [
  "crepuscularity-core",
  "gpui",
@@ -1715,7 +1706,7 @@ dependencies = [
 
 [[package]]
 name = "crepuscularity_macros"
-version = "0.5.5"
+version = "0.5.8"
 dependencies = [
  "crepuscularity-core",
  "proc-macro2",
@@ -3625,26 +3616,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "hdrhistogram"
-version = "7.5.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "765c9198f173dd59ce26ff9f95ef0aafd0a0fe01fb9d72841bc5066a4c06511d"
-dependencies = [
- "base64 0.21.7",
- "byteorder",
- "crossbeam-channel",
- "flate2",
- "nom 7.1.3",
- "num-traits",
-]
-
-[[package]]
 name = "headers"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b3314d5adb5d94bcdf56771f2e50dbbc80bb4bdf88967526706205ac9eff24eb"
 dependencies = [
- "base64 0.22.1",
+ "base64",
  "bytes",
  "headers-core",
  "http 1.4.2",
@@ -3872,7 +3849,7 @@ version = "0.1.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "96547c2556ec9d12fb1578c4eaf448b04993e7fb79cbaad930a656880a6bdfa0"
 dependencies = [
- "base64 0.22.1",
+ "base64",
  "bytes",
  "futures-channel",
  "futures-util",
@@ -6886,7 +6863,7 @@ version = "0.12.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eddd3ca559203180a307f12d114c268abf583f59b03cb906fd0b3ff8646c1147"
 dependencies = [
- "base64 0.22.1",
+ "base64",
  "bytes",
  "cookie 0.18.1",
  "cookie_store",
@@ -7820,7 +7797,7 @@ version = "0.3.0"
 dependencies = [
  "accesskit",
  "backtrace",
- "base64 0.22.1",
+ "base64",
  "content-security-policy",
  "crossbeam-channel",
  "euclid",
@@ -7861,7 +7838,7 @@ dependencies = [
 name = "servo-constellation-traits"
 version = "0.3.0"
 dependencies = [
- "base64 0.22.1",
+ "base64",
  "content-security-policy",
  "encoding_rs",
  "euclid",
@@ -7912,7 +7889,7 @@ name = "servo-devtools"
 version = "0.3.0"
 dependencies = [
  "atomic_refcell",
- "base64 0.22.1",
+ "base64",
  "chrono",
  "crossbeam-channel",
  "headers",
@@ -8393,7 +8370,7 @@ dependencies = [
  "async-compression",
  "async-recursion",
  "async-tungstenite",
- "base64 0.22.1",
+ "base64",
  "bytes",
  "chrono",
  "content-security-policy",
@@ -8623,7 +8600,7 @@ dependencies = [
  "atomic_refcell",
  "aws-lc-rs",
  "backtrace",
- "base64 0.22.1",
+ "base64",
  "base64ct",
  "bitflags 2.13.0",
  "brotli",
@@ -10641,7 +10618,7 @@ version = "0.45.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "80be9b06fbae3b8b303400ab20778c80bbaf338f563afe567cf3c9eea17b47ef"
 dependencies = [
- "base64 0.22.1",
+ "base64",
  "data-url",
  "flate2",
  "fontdb",
@@ -10668,7 +10645,7 @@ version = "0.47.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d46cf96c5f498d36b7a9693bc6a7075c0bb9303189d61b2249b0dc3d309c07de"
 dependencies = [
- "base64 0.22.1",
+ "base64",
  "data-url",
  "flate2",
  "fontdb",
@@ -11079,7 +11056,7 @@ version = "0.53.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "91d53921e1bef27512fa358179c9a22428d55778d2c2ae3c5c37a52b82ce6e92"
 dependencies = [
- "base64 0.22.1",
+ "base64",
  "bytes",
  "cookie 0.16.2",
  "http 0.2.12",
@@ -12286,7 +12263,7 @@ version = "0.12.15-zed"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ac2d05756ff48539950c3282ad7acf3817ad3f08797c205ad1c34a2ce03b9970"
 dependencies = [
- "base64 0.22.1",
+ "base64",
  "bytes",
  "encoding_rs",
  "futures-core",

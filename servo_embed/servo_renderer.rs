@@ -35,6 +35,7 @@ use surfman::{
 use dpi::PhysicalSize;
 use embedder_traits::{Scroll, WebViewPoint, WebViewVector};
 use servo::{
+    record_webview_history_change, record_webview_load_status, record_webview_page_title,
     DeviceIntPoint, DeviceIntRect, DeviceIntSize, DevicePoint, DeviceVector2D, EventLoopWaker,
     LoadStatus, RenderingContext, Servo, ServoBuilder, SoftwareRenderingContext, WebView,
     WebViewBuilder, WebViewDelegate,
@@ -60,14 +61,30 @@ impl WebViewDelegate for EmbedderDelegate {
         webview.paint();
     }
 
-    fn notify_load_status_changed(&self, _webview: WebView, status: LoadStatus) {
+    fn notify_load_status_changed(&self, webview: WebView, status: LoadStatus) {
         if status == LoadStatus::HeadParsed {
             self.head_parsed.store(true, Ordering::Relaxed);
         }
         if status == LoadStatus::Complete {
             self.load_complete.store(true, Ordering::Relaxed);
         }
+        sync_soliloquy_webview_snapshot(&webview);
     }
+
+    fn notify_page_title_changed(&self, webview: WebView, _title: Option<String>) {
+        sync_soliloquy_webview_snapshot(&webview);
+    }
+}
+
+/// Keep Soliloquy V8 dispatcher DOM reads aligned with Servo WebView state.
+fn sync_soliloquy_webview_snapshot(webview: &WebView) {
+    let id = webview.id();
+    record_webview_page_title(id, webview.page_title());
+    record_webview_history_change(
+        id,
+        webview.url().map(|url| url.to_string()),
+    );
+    record_webview_load_status(id, webview.load_status());
 }
 
 struct EventLoopWakerImpl(Arc<AtomicBool>);
@@ -394,6 +411,7 @@ impl ServoRenderer {
         self.pump_for(Duration::from_millis(settle_ms));
         self.install_polyfills();
         if let Some(webview) = &self.webview {
+            sync_soliloquy_webview_snapshot(webview);
             webview.paint();
         }
         let frame_timeout_secs = if cfg!(test) { 10 } else { 45 };
@@ -506,10 +524,14 @@ impl ServoRenderer {
             .unwrap_or_default()
     }
 
-    /// Evaluate JavaScript and return the result as a string.
-    /// Scripts run in Servo's default evaluation scope (may lack window globals).
+    /// Evaluate JavaScript via the Soliloquy V8 path (embedder dispatcher), with DOM-shaped
+    /// scripts routed through the live snapshot bridge when needed.
     pub fn evaluate_script_sync(&mut self, script: &str) -> Result<String, String> {
-        self.evaluate_raw(script)
+        if script_needs_page_dom_bridge(script) {
+            self.evaluate_dom_via_bridge(script)
+        } else {
+            self.evaluate_raw(script)
+        }
     }
 
     /// Evaluate JavaScript in the page's window scope by resolving globals
@@ -671,6 +693,13 @@ impl ServoRenderer {
             thread::sleep(Duration::from_millis(1));
         }
     }
+
+    fn evaluate_dom_via_bridge(&mut self, script: &str) -> Result<String, String> {
+        if let Some(webview) = &self.webview {
+            sync_soliloquy_webview_snapshot(webview);
+        }
+        self.evaluate_raw(script)
+    }
 }
 
 fn js_value_to_string(value: &JSValue) -> String {
@@ -754,12 +783,11 @@ mod tests {
                 .expect("typed numeric eval"),
             JsValue::Number(2.0)
         );
-        let title = renderer
-            .evaluate_script_sync("document.title")
-            .expect("document.title snapshot");
-        assert!(
-            title == "RV8 Link" || title.is_empty(),
-            "title from v8 bridge snapshot, got: {title}"
+        assert_eq!(
+            renderer
+                .evaluate_script_sync("document.title")
+                .expect("document.title via synced bridge"),
+            "RV8 Link"
         );
         assert_eq!(
             renderer
@@ -1067,6 +1095,18 @@ impl ServoHost {
     pub fn shutdown(&self) {
         let _ = self.tx.send(ServoCmd::Shutdown);
     }
+}
+
+fn script_needs_page_dom_bridge(script: &str) -> bool {
+    let script = script.trim();
+    [
+        "document.title",
+        "document.readyState",
+        "location.href",
+        "window.location.href",
+    ]
+    .iter()
+    .any(|probe| script == *probe)
 }
 
 fn build_click_script(x: f32, y: f32) -> String {
