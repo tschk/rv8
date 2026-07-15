@@ -709,11 +709,14 @@ fn js_value_from_embedder(value: &JSValue) -> JsValue {
 mod tests {
     use super::*;
 
+    // ponytail: one Servo process init per test binary — Servo opts panic on second ServoBuilder.
     #[test]
-    fn data_page_renders_with_layout() {
+    fn servo_v8_linking_smoke() {
         let mut renderer = ServoRenderer::new(800, 600).expect("servo renderer");
         renderer
-            .navigate("data:text/html,<html><body><h1>Hello%20RV8</h1><p>Visible%20content</p></body></html>")
+            .navigate(
+                "data:text/html,<html><head><title>RV8%20Link</title></head><body><h1>Hello%20RV8</h1><p>Visible%20content</p></body></html>",
+            )
             .expect("navigate data page");
         let frame = renderer.capture_frame(1).expect("frame");
         assert_eq!(frame.width, 800);
@@ -730,8 +733,39 @@ mod tests {
         assert_eq!(
             renderer
                 .evaluate_script_sync("document.readyState")
-                .expect("evaluate realm smoke"),
+                .expect("readyState via soliloquy v8"),
             "complete"
+        );
+        assert_eq!(
+            renderer
+                .evaluate_script_sync("(() => 21 * 2)()")
+                .expect("arrow fn via rusty_v8"),
+            "42"
+        );
+        assert_eq!(
+            renderer
+                .evaluate_script_sync("['rv', 8].join('')")
+                .expect("array join via rusty_v8"),
+            "rv8"
+        );
+        assert_eq!(
+            renderer
+                .evaluate_script_value_sync("1 + 1")
+                .expect("typed numeric eval"),
+            JsValue::Number(2.0)
+        );
+        let title = renderer
+            .evaluate_script_sync("document.title")
+            .expect("document.title snapshot");
+        assert!(
+            title == "RV8 Link" || title.is_empty(),
+            "title from v8 bridge snapshot, got: {title}"
+        );
+        assert_eq!(
+            renderer
+                .evaluate_script_sync("window.__soliloquyEngineBackend")
+                .expect("soliloquy v8 backend marker"),
+            "v8-experimental"
         );
     }
 
