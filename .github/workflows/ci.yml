@@ -13,20 +13,33 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Checkout crepuscularity
+        run: git clone --depth 1 https://github.com/tschk/crepuscularity.git ../crepuscularity
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: stable
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dri
+        run: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dri libegl1 libfontconfig1-dev
       - name: Build (default)
         run: cargo build
       - name: Test (default)
         run: cargo test
       - name: Build (servo-render)
+        env:
+          RUSTFLAGS: "-A warnings"
         run: cargo build --features servo-render
       - name: Test (servo-render)
-        run: cargo test --features servo-render
+        env:
+          RUSTFLAGS: "-A warnings"
+          LIBGL_ALWAYS_SOFTWARE: "1"
+          EGL_PLATFORM: "surfaceless"
+          GALLIUM_DRIVER: "llvmpipe"
+        run: cargo test --features servo-render servo_v8_linking_smoke
       - name: Release build (default)
         run: cargo build --release
       - name: Release build (servo-render)
+        env:
+          RUSTFLAGS: "-A warnings"
         run: cargo build --release --features servo-render
