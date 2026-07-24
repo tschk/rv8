@@ -28,6 +28,11 @@ name = "rv8-chrome"
 path = "src/bin/rv8-chrome.rs"
 required-features = ["chrome"]
 
+[[test]]
+name = "web_api_live"
+path = "tests/web_api_live.rs"
+required-features = ["rv8-v8"]
+
 [dependencies]
 # V8 JavaScript Engine
 rusty_v8 = { version = "0.32", optional = true }
