@@ -245,8 +245,10 @@ mod tests {
 
     #[test]
     fn test_dom_bindings() {
+        use crate::networking::WebSocketManager;
         use crate::servo_embed::dom::DomTree;
         use crate::servo_embed::web_apis::{ConsoleApi, StorageApi, TimerManager};
+        use crate::storage::IndexedDb;
         use parking_lot::RwLock;
         use std::sync::Arc;
 
@@ -256,6 +258,8 @@ mod tests {
         let timer_manager = Arc::new(RwLock::new(TimerManager::new()));
         let local_storage = Arc::new(RwLock::new(StorageApi::new(1024)));
         let session_storage = Arc::new(RwLock::new(StorageApi::new(1024)));
+        let indexeddb = Arc::new(RwLock::new(IndexedDb::ephemeral()));
+        let websocket_manager = Arc::new(RwLock::new(WebSocketManager::new()));
 
         engine.initialize(V8ContextData::new(
             dom_tree.clone(),
@@ -263,6 +267,8 @@ mod tests {
             timer_manager.clone(),
             local_storage.clone(),
             session_storage.clone(),
+            indexeddb,
+            websocket_manager,
         ));
 
         // Test console.log
@@ -284,8 +290,10 @@ mod tests {
 
     #[test]
     fn test_dom_mutation_and_event_bindings() {
+        use crate::networking::WebSocketManager;
         use crate::servo_embed::dom::{DomEvent, DomTree};
         use crate::servo_embed::web_apis::{ConsoleApi, StorageApi, TimerManager};
+        use crate::storage::IndexedDb;
         use parking_lot::RwLock;
         use std::sync::Arc;
 
@@ -295,6 +303,8 @@ mod tests {
         let timer_manager = Arc::new(RwLock::new(TimerManager::new()));
         let local_storage = Arc::new(RwLock::new(StorageApi::new(1024)));
         let session_storage = Arc::new(RwLock::new(StorageApi::new(1024)));
+        let indexeddb = Arc::new(RwLock::new(IndexedDb::ephemeral()));
+        let websocket_manager = Arc::new(RwLock::new(WebSocketManager::new()));
 
         engine.initialize(V8ContextData::new(
             dom_tree.clone(),
@@ -302,6 +312,8 @@ mod tests {
             timer_manager,
             local_storage,
             session_storage,
+            indexeddb,
+            websocket_manager,
         ));
 
         engine
@@ -491,8 +503,10 @@ mod tests {
 
     #[test]
     fn test_initialize() {
+        use crate::networking::WebSocketManager;
         use crate::servo_embed::dom::DomTree;
         use crate::servo_embed::web_apis::{ConsoleApi, StorageApi, TimerManager};
+        use crate::storage::IndexedDb;
         use parking_lot::RwLock;
         use std::sync::Arc;
 
@@ -502,6 +516,8 @@ mod tests {
         let timer_manager = Arc::new(RwLock::new(TimerManager::new()));
         let local_storage = Arc::new(RwLock::new(StorageApi::new(1024)));
         let session_storage = Arc::new(RwLock::new(StorageApi::new(1024)));
+        let indexeddb = Arc::new(RwLock::new(IndexedDb::ephemeral()));
+        let websocket_manager = Arc::new(RwLock::new(WebSocketManager::new()));
 
         let is_document_defined = engine
             .execute_to_string("typeof document !== 'undefined'")
@@ -514,6 +530,8 @@ mod tests {
             timer_manager.clone(),
             local_storage.clone(),
             session_storage.clone(),
+            indexeddb.clone(),
+            websocket_manager.clone(),
         ));
 
         let is_document_defined = engine
@@ -527,6 +545,8 @@ mod tests {
             timer_manager,
             local_storage,
             session_storage,
+            indexeddb,
+            websocket_manager,
         ));
 
         let is_document_defined = engine
@@ -537,8 +557,10 @@ mod tests {
 
     #[test]
     fn test_call_timer_callback() {
+        use crate::networking::WebSocketManager;
         use crate::servo_embed::dom::DomTree;
         use crate::servo_embed::web_apis::{ConsoleApi, StorageApi, TimerManager};
+        use crate::storage::IndexedDb;
         use parking_lot::RwLock;
         use std::sync::Arc;
 
@@ -548,6 +570,8 @@ mod tests {
         let timer_manager = Arc::new(RwLock::new(TimerManager::new()));
         let local_storage = Arc::new(RwLock::new(StorageApi::new(1024)));
         let session_storage = Arc::new(RwLock::new(StorageApi::new(1024)));
+        let indexeddb = Arc::new(RwLock::new(IndexedDb::ephemeral()));
+        let websocket_manager = Arc::new(RwLock::new(WebSocketManager::new()));
 
         engine.initialize(V8ContextData::new(
             dom_tree.clone(),
@@ -555,6 +579,8 @@ mod tests {
             timer_manager.clone(),
             local_storage.clone(),
             session_storage.clone(),
+            indexeddb,
+            websocket_manager,
         ));
 
         engine
@@ -578,8 +604,10 @@ mod tests {
 
     #[test]
     fn test_dispatch_event_no_listeners() {
+        use crate::networking::WebSocketManager;
         use crate::servo_embed::dom::{DomEvent, DomTree};
         use crate::servo_embed::web_apis::{ConsoleApi, StorageApi, TimerManager};
+        use crate::storage::IndexedDb;
         use parking_lot::RwLock;
         use std::sync::Arc;
 
@@ -589,6 +617,8 @@ mod tests {
         let timer_manager = Arc::new(RwLock::new(TimerManager::new()));
         let local_storage = Arc::new(RwLock::new(StorageApi::new(1024)));
         let session_storage = Arc::new(RwLock::new(StorageApi::new(1024)));
+        let indexeddb = Arc::new(RwLock::new(IndexedDb::ephemeral()));
+        let websocket_manager = Arc::new(RwLock::new(WebSocketManager::new()));
 
         engine.initialize(V8ContextData::new(
             dom_tree.clone(),
@@ -596,6 +626,8 @@ mod tests {
             timer_manager,
             local_storage,
             session_storage,
+            indexeddb,
+            websocket_manager,
         ));
 
         let event = DomEvent {

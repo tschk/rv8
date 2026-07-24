@@ -22,6 +22,10 @@ use crate::renderer::RenderFrame;
 use crate::js::bindings::V8ContextData;
 #[cfg(feature = "rv8-v8")]
 use crate::js::JsEngine;
+#[cfg(feature = "rv8-v8")]
+use crate::networking::WebSocketManager;
+#[cfg(feature = "rv8-v8")]
+use crate::storage::IndexedDb;
 
 #[cfg(not(feature = "servo-render"))]
 pub mod dom;
@@ -129,6 +133,10 @@ impl ServoEmbedder {
         let local_storage = Arc::new(RwLock::new(StorageApi::new(5 * 1024 * 1024)));
         #[cfg(not(feature = "servo-render"))]
         let session_storage = Arc::new(RwLock::new(StorageApi::new(5 * 1024 * 1024)));
+        #[cfg(feature = "rv8-v8")]
+        let indexeddb = Arc::new(RwLock::new(IndexedDb::ephemeral()));
+        #[cfg(feature = "rv8-v8")]
+        let websocket_manager = Arc::new(RwLock::new(WebSocketManager::new()));
 
         #[cfg(feature = "rv8-v8")]
         let js_engine = {
@@ -141,6 +149,8 @@ impl ServoEmbedder {
                 timer_manager.clone(),
                 local_storage.clone(),
                 session_storage.clone(),
+                indexeddb,
+                websocket_manager,
             ));
             Arc::new(Mutex::new(js_engine))
         };
