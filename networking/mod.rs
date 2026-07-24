@@ -1,5 +1,11 @@
 //! Network stack module
 
+mod websocket;
+
+pub use websocket::{
+    WebSocketConnection, WebSocketFrame, WebSocketManager, WebSocketState,
+};
+
 use crate::optimizations::{
     DnsPrefetchCache, PrefetchManager, PrefetchPriority, PriorityQueue, ResourceRequest,
     ResourceType,
