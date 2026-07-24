@@ -36,6 +36,11 @@ impl BrowserEngine {
         self.embedder.current_url()
     }
 
+    /// Send a Chrome DevTools Protocol JSON-RPC message.
+    pub async fn cdp_send(&mut self, json: &str) -> Result<String, String> {
+        self.embedder.cdp_send(json).await
+    }
+
     pub fn viewport_size(&self) -> (u32, u32) {
         self.embedder.viewport_size()
     }

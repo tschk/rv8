@@ -11,8 +11,9 @@
 use log::{debug, info};
 #[cfg(not(feature = "servo-render"))]
 use parking_lot::RwLock;
-#[cfg(not(feature = "servo-render"))]
 use std::sync::Arc;
+#[cfg(feature = "rv8-v8")]
+use tokio::sync::Mutex;
 
 use crate::js::JsValue;
 use crate::renderer::RenderFrame;
@@ -281,6 +282,18 @@ impl ServoEmbedder {
         }
         #[cfg(not(any(feature = "servo-render", feature = "rv8-v8")))]
         let _ = script;
+        Err("JavaScript backend not enabled".to_string())
+    }
+
+    /// Send a Chrome DevTools Protocol JSON-RPC message.
+    pub async fn cdp_send(&mut self, json: &str) -> Result<String, String> {
+        #[cfg(feature = "rv8-v8")]
+        {
+            let mut engine = self.js_engine.lock().await;
+            return Ok(engine.cdp_send(json));
+        }
+        #[cfg(not(feature = "rv8-v8"))]
+        let _ = json;
         Err("JavaScript backend not enabled".to_string())
     }
 

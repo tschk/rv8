@@ -3,6 +3,7 @@
 //! Provides a safe Rust interface to the V8 JavaScript engine.
 
 use crate::js::bindings::{initialize_context, take_context_data, V8ContextData};
+use crate::js::inspector::CdpSessionState;
 use crate::servo_embed::dom::DomEvent;
 use log::{debug, error, info};
 use rusty_v8 as v8;
@@ -24,6 +25,7 @@ pub(crate) fn init_v8() {
 pub struct JsEngine {
     isolate: v8::OwnedIsolate,
     context: v8::Global<v8::Context>,
+    cdp: CdpSessionState,
 }
 
 impl JsEngine {
@@ -40,7 +42,11 @@ impl JsEngine {
             v8::Global::new(handle_scope, context)
         };
 
-        Ok(JsEngine { isolate, context })
+        Ok(JsEngine {
+            isolate,
+            context,
+            cdp: CdpSessionState::new(),
+        })
     }
 
     /// Initialize the engine with DOM and Web APIs
@@ -135,6 +141,14 @@ impl JsEngine {
         let scope = &mut v8::ContextScope::new(handle_scope, context);
 
         crate::js::bindings::dispatch_event(scope, event)
+    }
+
+    /// Send a Chrome DevTools Protocol JSON-RPC message and return the JSON response.
+    pub fn cdp_send(&mut self, json: &str) -> String {
+        let mut cdp = std::mem::take(&mut self.cdp);
+        let response = cdp.cdp_send(self, json);
+        self.cdp = cdp;
+        response
     }
 
     /// Convert V8 value to our JsValue type
