@@ -1,15 +1,19 @@
-//! Storage subsystems: profile metadata, cookies, and browser session state.
+//! Storage subsystems: profile metadata, cookies, IndexedDB, and browser session state.
 //!
 //! Persistent state lives under [`crate::core::BrowserDataDirs::profile_dir`] in
-//! `storage.sled` unless incognito mode is enabled (in-memory only).
+//! `storage.sled` and `indexeddb.sled` unless incognito mode is enabled (in-memory only).
 
 mod cookie;
 mod error;
+mod indexeddb;
 mod profile;
 mod session;
 
 pub use cookie::{Cookie, CookieJar, CookieJarSnapshot, SameSite};
 pub use error::StorageError;
+pub use indexeddb::{
+    DatabaseMetadata, IndexMetadata, IndexedDb, KeyRange, ObjectStoreMetadata, INDEXEDDB_FILE,
+};
 pub use profile::{ProfileMeta, ProfileStore};
 pub use session::{BrowserSessionSnapshot, SessionStore, SessionTab};
 
@@ -18,12 +22,13 @@ use std::path::{Path, PathBuf};
 
 const DB_FILE: &str = "storage.sled";
 
-/// Storage manager for profiles, cookies, and session snapshots.
+/// Storage manager for profiles, cookies, IndexedDB, and session snapshots.
 pub struct StorageManager {
     db_path: PathBuf,
     ephemeral: bool,
     pub profile: ProfileStore,
     pub cookies: CookieJar,
+    pub indexeddb: IndexedDb,
     pub session: SessionStore,
 }
 
@@ -42,6 +47,7 @@ impl StorageManager {
                 ephemeral: true,
                 profile: ProfileStore::ephemeral("incognito"),
                 cookies: CookieJar::ephemeral(),
+                indexeddb: IndexedDb::ephemeral(),
                 session: SessionStore::ephemeral("incognito"),
             });
         }
@@ -65,6 +71,7 @@ impl StorageManager {
             ephemeral: false,
             profile: ProfileStore::open(meta_tree, profile_id.clone())?,
             cookies: CookieJar::open(cookie_tree)?,
+            indexeddb: IndexedDb::open(profile_dir, false)?,
             session: SessionStore::open(session_tree, profile_id)?,
         })
     }
@@ -138,10 +145,19 @@ mod tests {
                 same_site: None,
             })
             .expect("cookie");
+        storage
+            .indexeddb
+            .set_metadata("app", DatabaseMetadata::new("app", 1))
+            .expect("metadata");
         assert!(storage.is_ephemeral());
         assert_eq!(storage.cookies.all().len(), 1);
+        assert_eq!(storage.indexeddb.get_metadata("app").expect("meta").name, "app");
 
         let persisted = StorageManager::open(dir.path(), false).expect("reopen");
         assert!(persisted.cookies.all().is_empty());
+        assert!(matches!(
+            persisted.indexeddb.get_metadata("app"),
+            Err(StorageError::NotFound(_))
+        ));
     }
 }
