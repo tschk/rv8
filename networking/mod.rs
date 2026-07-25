@@ -26,6 +26,8 @@ pub struct NetworkManager {
     prefetch: PrefetchManager,
     /// Priority queue for in-flight resource requests.
     priority_queue: PriorityQueue,
+    /// HTTP client for making network requests.
+    client: reqwest::Client,
 }
 
 impl NetworkManager {
@@ -36,11 +38,17 @@ impl NetworkManager {
             dns_prefetch: DnsPrefetchCache::new(),
             prefetch: PrefetchManager::new(),
             priority_queue: PriorityQueue::new(DEFAULT_MAX_CONCURRENT),
+            client: reqwest::Client::new(),
         })
     }
 
     pub fn cookie_jar(&self) -> &CookieJar {
         &self.cookies
+    }
+
+    /// Access the underlying HTTP client.
+    pub fn client(&self) -> &reqwest::Client {
+        &self.client
     }
 
     /// Access the DNS prefetch cache.
