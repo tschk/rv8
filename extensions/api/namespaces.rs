@@ -271,10 +271,10 @@ fn tabs(runtime: &ExtensionRuntime, req: &ApiRequest) -> ApiResponse {
         }
         "create" => {
             let opts = req.options(1).or_else(|| req.options(0)).cloned().unwrap_or_default();
-            let id = runtime.next_tab_id();
             let url = opts.get("url").and_then(|v| v.as_str()).unwrap_or("about:blank").to_string();
             let active = opts.get("active").and_then(|v| v.as_bool()).unwrap_or(true);
             let pinned = opts.get("pinned").and_then(|v| v.as_bool()).unwrap_or(false);
+            let id = runtime.create_tab_driver(&url, active)?;
             let mut new_tab = ExtensionTab {
                 id,
                 url,
@@ -311,6 +311,7 @@ fn tabs(runtime: &ExtensionRuntime, req: &ApiRequest) -> ApiResponse {
             };
             let id = id.ok_or("No active tab")?;
             let active = props.get("active").and_then(|v| v.as_bool()).unwrap_or(false);
+            runtime.update_tab_driver(id, Value::Object(props.clone()))?;
             let mut state = runtime.tab_state();
             let mut updated = None;
             for t in state.iter_mut() {
@@ -333,6 +334,7 @@ fn tabs(runtime: &ExtensionRuntime, req: &ApiRequest) -> ApiResponse {
         }
         "remove" => {
             let ids = extract_tab_ids(req)?;
+            runtime.close_tabs_driver(&ids)?;
             {
                 let mut state = runtime.tab_state();
                 state.retain(|t| !ids.contains(&t.id));
@@ -346,6 +348,7 @@ fn tabs(runtime: &ExtensionRuntime, req: &ApiRequest) -> ApiResponse {
             } else {
                 runtime.active_tab().map(|t| t.id).unwrap_or(0)
             };
+            runtime.reload_tab_driver(id)?;
             if let Some(mut tab) = runtime.tab(id) {
                 tab.status = Some("loading".into());
                 return Ok(tab_to_value(tab));

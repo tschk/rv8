@@ -13,6 +13,48 @@ use crate::networking::NetworkManager;
 use crate::optimizations::MemoryOptimizer;
 use crate::storage::StorageManager;
 
+/// Operations requested by the extension runtime for the browser to perform on tabs.
+#[derive(Debug)]
+pub enum BrowserTabOp {
+    Create { id: u64, url: String, active: bool },
+    Close { ids: Vec<u64> },
+    Update { id: u64, props: serde_json::Value },
+    Reload { id: u64 },
+}
+
+/// Tab driver that sends extension tab operations to the Browser event loop.
+#[derive(Clone)]
+pub struct BrowserTabDriver {
+    next_tab_id: Arc<std::sync::atomic::AtomicU64>,
+    tx: tokio::sync::mpsc::Sender<BrowserTabOp>,
+}
+
+impl BrowserTabDriver {
+    pub fn new(next_tab_id: Arc<std::sync::atomic::AtomicU64>, tx: tokio::sync::mpsc::Sender<BrowserTabOp>) -> Self {
+        Self { next_tab_id, tx }
+    }
+}
+
+impl crate::extensions::runtime::TabDriver for BrowserTabDriver {
+    fn create_tab(&self, url: &str, active: bool) -> Result<u64, String> {
+        let id = self.next_tab_id.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.tx.try_send(BrowserTabOp::Create { id, url: url.to_string(), active }).map_err(|e| e.to_string())?;
+        Ok(id)
+    }
+
+    fn close_tabs(&self, ids: &[u64]) -> Result<(), String> {
+        self.tx.try_send(BrowserTabOp::Close { ids: ids.to_vec() }).map_err(|e| e.to_string())
+    }
+
+    fn update_tab(&self, id: u64, props: serde_json::Value) -> Result<(), String> {
+        self.tx.try_send(BrowserTabOp::Update { id, props }).map_err(|e| e.to_string())
+    }
+
+    fn reload_tab(&self, id: u64) -> Result<(), String> {
+        self.tx.try_send(BrowserTabOp::Reload { id }).map_err(|e| e.to_string())
+    }
+}
+
 /// Main browser instance
 pub struct Browser {
     /// Browser configuration
@@ -25,7 +67,7 @@ pub struct Browser {
     active_tab: RwLock<Option<TabId>>,
 
     /// Next tab ID counter
-    next_tab_id: std::sync::atomic::AtomicU64,
+    next_tab_id: Arc<std::sync::atomic::AtomicU64>,
 
     /// Process manager for child processes
     process_manager: Arc<ProcessManager>,
@@ -50,6 +92,8 @@ pub struct Browser {
 
     /// Renderer → browser IPC events
     browser_events: tokio::sync::mpsc::UnboundedReceiver<BrowserMessage>,
+    /// Extension tab operation receiver
+    tab_op_rx: tokio::sync::mpsc::Receiver<BrowserTabOp>,
 }
 
 impl Browser {
@@ -77,6 +121,11 @@ impl Browser {
         info!("Network manager initialized");
 
         let (browser_event_tx, browser_event_rx) = tokio::sync::mpsc::unbounded_channel();
+
+        let (tab_op_tx, tab_op_rx) = tokio::sync::mpsc::channel(64);
+        let next_tab_id = Arc::new(std::sync::atomic::AtomicU64::new(1));
+        let tab_driver = Arc::new(BrowserTabDriver::new(next_tab_id.clone(), tab_op_tx));
+        extension_runtime.set_tab_driver(tab_driver);
 
         // Initialize process manager
         let process_manager = if config.multi_process {
@@ -108,7 +157,7 @@ impl Browser {
             config,
             tabs: RwLock::new(HashMap::new()),
             active_tab: RwLock::new(None),
-            next_tab_id: std::sync::atomic::AtomicU64::new(1),
+            next_tab_id,
             process_manager,
             compositor,
             network,
@@ -117,6 +166,7 @@ impl Browser {
             extension_runtime,
             shutdown: shutdown_tx,
             browser_events: browser_event_rx,
+            tab_op_rx,
         })
     }
 
@@ -205,7 +255,10 @@ impl Browser {
             self.next_tab_id
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst),
         );
+        self.new_tab_with_id(tab_id, url).await
+    }
 
+    async fn new_tab_with_id(&mut self, tab_id: TabId, url: &str) -> Result<TabId, String> {
         info!("Creating new tab {} with URL: {}", tab_id.0, url);
 
         // Create renderer process for this tab
@@ -315,6 +368,54 @@ impl Browser {
         Ok(())
     }
 
+    /// Reload a tab
+    pub async fn reload_tab(&self, tab_id: TabId) -> Result<(), String> {
+        let tabs = self.tabs.read().await;
+        if let Some(tab) = tabs.get(&tab_id) {
+            let mut tab = tab.lock().await;
+            tab.reload().await?;
+            self.extension_runtime.update_tab_status(tab_id.0, Some("loading".into()));
+            Ok(())
+        } else {
+            Err(format!("Tab {} not found", tab_id.0))
+        }
+    }
+
+    async fn process_tab_op(&mut self, op: BrowserTabOp) {
+        match op {
+            BrowserTabOp::Create { id, url, active } => {
+                if let Ok(tab_id) = self.new_tab_with_id(TabId(id), &url).await {
+                    if active {
+                        let _ = self.set_active_tab(tab_id).await;
+                    }
+                    self.extension_runtime.new_tab(id, &url);
+                    if active {
+                        self.extension_runtime.set_active_tab(id);
+                    }
+                }
+            }
+            BrowserTabOp::Close { ids } => {
+                for id in ids {
+                    let _ = self.close_tab(TabId(id)).await;
+                }
+            }
+            BrowserTabOp::Update { id, props } => {
+                if let Some(url) = props.get("url").and_then(|v| v.as_str()) {
+                    let _ = self.navigate_tab(TabId(id), url).await;
+                }
+                if let Some(active) = props.get("active").and_then(|v| v.as_bool()) {
+                    if active {
+                        let _ = self.set_active_tab(TabId(id)).await;
+                        self.extension_runtime.set_active_tab(id);
+                    }
+                }
+            }
+            BrowserTabOp::Reload { id } => {
+                let _ = self.reload_tab(TabId(id)).await;
+            }
+        }
+    }
+
     /// Get the active tab ID
     pub async fn active_tab(&self) -> Option<TabId> {
         *self.active_tab.read().await
@@ -367,7 +468,9 @@ impl Browser {
                     self.render_frame().await;
                 }
 
-
+                Some(op) = self.tab_op_rx.recv() => {
+                    self.process_tab_op(op).await;
+                }
             }
         }
 

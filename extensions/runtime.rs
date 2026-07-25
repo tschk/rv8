@@ -12,6 +12,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 use super::api::{ApiRequest, ApiResponse};
 use super::manifest::{Background, ExtensionManifest};
@@ -87,6 +88,19 @@ pub struct ContentScriptMatch {
     pub match_about_blank: bool,
 }
 
+/// Tab driver trait supplied by the browser process so extension API calls
+/// that create, close, or mutate tabs can reach the real Browser state.
+pub trait TabDriver: Send + Sync {
+    /// Create a tab and return its new id.
+    fn create_tab(&self, url: &str, active: bool) -> Result<u64, String>;
+    /// Close the given tab ids.
+    fn close_tabs(&self, ids: &[u64]) -> Result<(), String>;
+    /// Update tab properties (url, pinned, active).
+    fn update_tab(&self, id: u64, props: serde_json::Value) -> Result<(), String>;
+    /// Reload a tab.
+    fn reload_tab(&self, id: u64) -> Result<(), String>;
+}
+
 /// Background script / service worker descriptor for an extension.
 #[derive(Debug, Clone)]
 pub struct BackgroundScript {
@@ -125,6 +139,8 @@ pub struct ExtensionRuntime {
     event_listeners: Mutex<HashMap<String, Vec<serde_json::Value>>>,
     /// Messages queued by runtime.sendMessage until the JS bridge dispatches them.
     pending_messages: Mutex<Vec<PendingMessage>>,
+    /// Optional driver that routes extension tab operations to the browser process.
+    tab_driver: Mutex<Option<Arc<dyn TabDriver>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -162,6 +178,7 @@ impl ExtensionRuntime {
             action_state: Mutex::new(HashMap::new()),
             event_listeners: Mutex::new(HashMap::new()),
             pending_messages: Mutex::new(Vec::new()),
+            tab_driver: Mutex::new(None),
         }
     }
 
@@ -498,6 +515,44 @@ impl ExtensionRuntime {
         let dir = self.extensions_dir.join(&id.0);
         self.unload(id);
         self.load_from_dir(&dir).map(|_| ())
+    }
+
+    // ── Tab driver wiring ──
+
+    pub fn set_tab_driver(&self, driver: Arc<dyn TabDriver>) {
+        *self.tab_driver.lock() = Some(driver);
+    }
+
+    pub fn create_tab_driver(&self, url: &str, active: bool) -> Result<u64, String> {
+        self.tab_driver
+            .lock()
+            .as_ref()
+            .ok_or("Tab operations require a browser driver".to_string())?
+            .create_tab(url, active)
+    }
+
+    pub fn close_tabs_driver(&self, ids: &[u64]) -> Result<(), String> {
+        self.tab_driver
+            .lock()
+            .as_ref()
+            .ok_or("Tab operations require a browser driver".to_string())?
+            .close_tabs(ids)
+    }
+
+    pub fn update_tab_driver(&self, id: u64, props: serde_json::Value) -> Result<(), String> {
+        self.tab_driver
+            .lock()
+            .as_ref()
+            .ok_or("Tab operations require a browser driver".to_string())?
+            .update_tab(id, props)
+    }
+
+    pub fn reload_tab_driver(&self, id: u64) -> Result<(), String> {
+        self.tab_driver
+            .lock()
+            .as_ref()
+            .ok_or("Tab operations require a browser driver".to_string())?
+            .reload_tab(id)
     }
 
     /// Dispatch an API request into the adapter.
