@@ -77,7 +77,7 @@ compile_error!(
 // Re-exports
 pub use compositor::Compositor;
 pub use core::{Browser, BrowserConfig, Tab, TabId};
-pub use engine::{BrowserEngine, EngineBuilder};
+pub use engine::BrowserEngine;
 #[cfg(feature = "rv8-v8")]
 pub use js::JsEngine;
 pub use js::JsValue;
