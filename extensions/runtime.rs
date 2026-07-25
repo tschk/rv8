@@ -129,6 +129,8 @@ pub struct ExtensionRuntime {
     next_tab_id: AtomicU64,
     next_download_id: AtomicU64,
     next_menu_id: AtomicU64,
+    next_bookmark_id: AtomicU64,
+    next_history_id: AtomicU64,
     downloads: Mutex<HashMap<u64, serde_json::Value>>,
     context_menu_items: Mutex<HashMap<u64, ContextMenuItem>>,
     notification_items: Mutex<HashMap<String, serde_json::Value>>,
@@ -144,6 +146,31 @@ pub struct ExtensionRuntime {
     tab_driver: Mutex<Option<Arc<dyn TabDriver>>>,
     /// Optional handle to the browser cookie jar.
     cookie_jar: Mutex<Option<Arc<CookieJar>>>,
+    /// In-memory bookmark tree.
+    bookmarks: Mutex<HashMap<String, BookmarkNode>>,
+    /// In-memory browser history.
+    history: Mutex<Vec<HistoryItem>>,
+    /// Omnibox default suggestion.
+    omnibox_default_suggestion: Mutex<Option<serde_json::Value>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct BookmarkNode {
+    pub id: String,
+    pub parent_id: Option<String>,
+    pub index: u32,
+    pub title: String,
+    pub url: Option<String>,
+    pub children: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct HistoryItem {
+    pub id: String,
+    pub url: String,
+    pub title: String,
+    pub last_visit_time: u64,
+    pub visit_count: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -172,6 +199,8 @@ impl ExtensionRuntime {
             next_tab_id: AtomicU64::new(100_000),
             next_download_id: AtomicU64::new(1),
             next_menu_id: AtomicU64::new(1),
+            next_bookmark_id: AtomicU64::new(1),
+            next_history_id: AtomicU64::new(1),
             downloads: Mutex::new(HashMap::new()),
             context_menu_items: Mutex::new(HashMap::new()),
             notification_items: Mutex::new(HashMap::new()),
@@ -183,6 +212,9 @@ impl ExtensionRuntime {
             pending_messages: Mutex::new(Vec::new()),
             tab_driver: Mutex::new(None),
             cookie_jar: Mutex::new(None),
+            bookmarks: Mutex::new(HashMap::new()),
+            history: Mutex::new(Vec::new()),
+            omnibox_default_suggestion: Mutex::new(None),
         }
     }
 
@@ -446,6 +478,14 @@ impl ExtensionRuntime {
         self.next_menu_id.fetch_add(1, Ordering::SeqCst)
     }
 
+    pub fn next_bookmark_id(&self) -> u64 {
+        self.next_bookmark_id.fetch_add(1, Ordering::SeqCst)
+    }
+
+    pub fn next_history_id(&self) -> u64 {
+        self.next_history_id.fetch_add(1, Ordering::SeqCst)
+    }
+
     pub fn downloads(&self) -> parking_lot::MutexGuard<'_, HashMap<u64, serde_json::Value>> {
         self.downloads.lock()
     }
@@ -537,6 +577,18 @@ impl ExtensionRuntime {
 
     pub fn cookie_jar(&self) -> Option<Arc<CookieJar>> {
         self.cookie_jar.lock().clone()
+    }
+
+    pub fn bookmarks(&self) -> parking_lot::MutexGuard<'_, HashMap<String, BookmarkNode>> {
+        self.bookmarks.lock()
+    }
+
+    pub fn history(&self) -> parking_lot::MutexGuard<'_, Vec<HistoryItem>> {
+        self.history.lock()
+    }
+
+    pub fn omnibox_default_suggestion(&self) -> parking_lot::MutexGuard<'_, Option<serde_json::Value>> {
+        self.omnibox_default_suggestion.lock()
     }
 
     pub fn create_tab_driver(&self, url: &str, active: bool) -> Result<u64, String> {

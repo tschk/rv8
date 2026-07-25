@@ -6,6 +6,7 @@
 //! can see exactly what is missing.
 
 use serde_json::{json, Map, Value};
+use std::collections::HashMap;
 use url::Url;
 
 use super::{ApiRequest, ApiResponse};
@@ -583,30 +584,290 @@ fn alarm_to_value(alarm: &runtime::Alarm) -> Value {
     })
 }
 
-// ── bookmarks / history (stubs) ──
+// ── bookmarks / history ──
 
 fn bookmarks(runtime: &ExtensionRuntime, req: &ApiRequest) -> ApiResponse {
-    let _ = runtime;
+    let ensure_root = || {
+        let mut tree = runtime.bookmarks();
+        if !tree.contains_key("1") {
+            tree.insert(
+                "1".into(),
+                runtime::BookmarkNode {
+                    id: "1".into(),
+                    parent_id: None,
+                    index: 0,
+                    title: "Bookmarks Bar".into(),
+                    url: None,
+                    children: Vec::new(),
+                },
+            );
+        }
+    };
     match req.method.as_str() {
-        "getTree" => Ok(json!([{"id": "1", "title": "Bookmarks Bar", "index": 0, "children": []}])),
-        "search" | "get" | "getChildren" | "getRecent" | "getSubTree" => Ok(json!([])),
-        "create" | "move" | "update" | "remove" | "removeTree" => Ok(Value::Null),
-        _ => Err(format!("bookmarks.{} not implemented", req.method)),
+        "getTree" => {
+            ensure_root();
+            Ok(Value::Array(vec![bookmark_tree(runtime, "1")]))
+        }
+        "get" => {
+            let id = req.string_arg(0).unwrap_or("");
+            runtime.bookmarks().get(id).map(bookmark_to_value).ok_or_else(|| format!("Bookmark {} not found", id))
+        }
+        "getChildren" => {
+            ensure_root();
+            let id = req.string_arg(0).unwrap_or("1");
+            let children = runtime.bookmarks().get(id).map(|n| n.children.clone()).unwrap_or_default();
+            Ok(Value::Array(children.iter().filter_map(|cid| runtime.bookmarks().get(cid).map(bookmark_to_value)).collect()))
+        }
+        "getRecent" => {
+            let count = req.args.first().and_then(|v| v.as_u64()).unwrap_or(10) as usize;
+            let nodes: Vec<Value> = runtime.bookmarks().values().take(count).map(bookmark_to_value).collect();
+            Ok(Value::Array(nodes))
+        }
+        "getSubTree" => {
+            let id = req.string_arg(0).unwrap_or("1");
+            Ok(bookmark_tree(runtime, id))
+        }
+        "search" => {
+            let query = req.string_arg(0).unwrap_or("").to_lowercase();
+            let results: Vec<Value> = runtime
+                .bookmarks()
+                .values()
+                .filter(|n| {
+                    n.title.to_lowercase().contains(&query)
+                        || n.url.as_ref().is_some_and(|u| u.to_lowercase().contains(&query))
+                })
+                .map(bookmark_to_value)
+                .collect();
+            Ok(Value::Array(results))
+        }
+        "create" => {
+            ensure_root();
+            let opts = req.options(0).cloned().unwrap_or_default();
+            let mut tree = runtime.bookmarks();
+            let id = runtime.next_bookmark_id().to_string();
+            let parent_id = opts.get("parentId").and_then(|v| v.as_str()).unwrap_or("1").to_string();
+            let index = opts.get("index").and_then(|v| v.as_u64()).map(|i| i as u32).unwrap_or_else(|| {
+                tree.get(&parent_id).map(|p| p.children.len() as u32).unwrap_or(0)
+            });
+            let node = runtime::BookmarkNode {
+                id: id.clone(),
+                parent_id: Some(parent_id.clone()),
+                index,
+                title: opts.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                url: opts.get("url").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                children: Vec::new(),
+            };
+            if let Some(parent) = tree.get_mut(&parent_id) {
+                if (index as usize) <= parent.children.len() {
+                    parent.children.insert(index as usize, id.clone());
+                } else {
+                    parent.children.push(id.clone());
+                }
+            }
+            tree.insert(id.clone(), node);
+            tree.get(&id).map(bookmark_to_value).ok_or_else(|| format!("Failed to create bookmark {}", id))
+        }
+        "update" => {
+            let id = req.string_arg(0).ok_or("bookmarks.update requires id")?;
+            let changes = req.options(1).cloned().unwrap_or_default();
+            let mut tree = runtime.bookmarks();
+            let node = tree.get_mut(id).ok_or_else(|| format!("Bookmark {} not found", id))?;
+            if let Some(title) = changes.get("title").and_then(|v| v.as_str()) {
+                node.title = title.to_string();
+            }
+            if let Some(url) = changes.get("url").and_then(|v| v.as_str()) {
+                node.url = Some(url.to_string());
+            }
+            Ok(bookmark_to_value(&node.clone()))
+        }
+        "move" => {
+            let id = req.string_arg(0).ok_or("bookmarks.move requires id")?;
+            let opts = req.options(1).cloned().unwrap_or_default();
+            let new_parent = opts.get("parentId").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let new_index = opts.get("index").and_then(|v| v.as_u64()).map(|i| i as u32);
+            {
+                let mut tree = runtime.bookmarks();
+                let node = tree.get(id).cloned().ok_or_else(|| format!("Bookmark {} not found", id))?;
+                if let Some(ref old_parent) = node.parent_id {
+                    if let Some(p) = tree.get_mut(old_parent) {
+                        p.children.retain(|c| c != id);
+                    }
+                }
+                let parent_id = new_parent.unwrap_or_else(|| node.parent_id.clone().unwrap_or_default());
+                if let Some(p) = tree.get_mut(&parent_id) {
+                    let idx = new_index.unwrap_or(p.children.len() as u32) as usize;
+                    if idx <= p.children.len() {
+                        p.children.insert(idx, id.to_string());
+                    } else {
+                        p.children.push(id.to_string());
+                    }
+                }
+                if let Some(n) = tree.get_mut(id) {
+                    n.parent_id = Some(parent_id.clone());
+                    n.index = new_index.unwrap_or(0);
+                }
+                let n = tree.get(id).cloned().unwrap();
+                Ok(bookmark_to_value(&n))
+            }
+        }
+        "remove" => {
+            let id = req.string_arg(0).ok_or("bookmarks.remove requires id")?;
+            remove_bookmark(runtime, id)?;
+            Ok(Value::Null)
+        }
+        "removeTree" => {
+            let id = req.string_arg(0).ok_or("bookmarks.removeTree requires id")?;
+            remove_bookmark_tree(runtime, id)?;
+            Ok(Value::Null)
+        }
+        "onCreated" | "onRemoved" | "onChanged" | "onMoved" | "onChildrenReordered" | "onImportBegan" | "onImportEnded" => event_dispatch(runtime, req),
+        _ => Err(format!("bookmarks.{} is not supported", req.method)),
     }
 }
 
-fn history(runtime: &ExtensionRuntime, req: &ApiRequest) -> ApiResponse {
-    let _ = runtime;
-    match req.method.as_str() {
-        "search" | "getVisits" => Ok(json!([])),
-        "addUrl" | "deleteUrl" | "deleteRange" | "deleteAll" => Ok(Value::Null),
-        _ => Err(format!("history.{} not implemented", req.method)),
+fn bookmark_to_value(node: &runtime::BookmarkNode) -> Value {
+    let mut obj = serde_json::Map::new();
+    obj.insert("id".into(), json!(node.id.clone()));
+    obj.insert("title".into(), json!(node.title.clone()));
+    obj.insert("index".into(), json!(node.index));
+    if let Some(ref parent) = node.parent_id {
+        obj.insert("parentId".into(), json!(parent.clone()));
     }
+    if let Some(ref url) = node.url {
+        obj.insert("url".into(), json!(url.clone()));
+    }
+    if !node.children.is_empty() {
+        obj.insert("children".into(), Value::Array(Vec::new()));
+    }
+    Value::Object(obj)
+}
+
+fn bookmark_tree(runtime: &ExtensionRuntime, id: &str) -> Value {
+    let node = runtime.bookmarks().get(id).cloned();
+    if let Some(node) = node {
+        let mut value = bookmark_to_value(&node);
+        let children: Vec<Value> = node
+            .children
+            .iter()
+            .filter_map(|cid| runtime.bookmarks().get(cid).cloned().map(|c| bookmark_tree(runtime, &c.id)))
+            .collect();
+        if let Value::Object(ref mut obj) = value {
+            if !children.is_empty() {
+                obj.insert("children".into(), Value::Array(children));
+            }
+        }
+        value
+    } else {
+        Value::Null
+    }
+}
+
+fn remove_bookmark(runtime: &ExtensionRuntime, id: &str) -> Result<(), String> {
+    let mut tree = runtime.bookmarks();
+    let node = tree.remove(id).ok_or_else(|| format!("Bookmark {} not found", id))?;
+    if let Some(parent_id) = node.parent_id {
+        if let Some(parent) = tree.get_mut(&parent_id) {
+            parent.children.retain(|c| c != id);
+        }
+    }
+    Ok(())
+}
+
+fn remove_bookmark_tree(runtime: &ExtensionRuntime, id: &str) -> Result<(), String> {
+    let children = {
+        let tree = runtime.bookmarks();
+        tree.get(id).map(|n| n.children.clone()).unwrap_or_default()
+    };
+    for child in children {
+        remove_bookmark_tree(runtime, &child)?;
+    }
+    remove_bookmark(runtime, id)
+}
+
+fn history(runtime: &ExtensionRuntime, req: &ApiRequest) -> ApiResponse {
+    match req.method.as_str() {
+        "search" => {
+            let query = req.string_arg(0).unwrap_or("").to_lowercase();
+            let results: Vec<Value> = runtime
+                .history()
+                .iter()
+                .filter(|h| h.url.to_lowercase().contains(&query) || h.title.to_lowercase().contains(&query))
+                .map(history_to_value)
+                .collect();
+            Ok(Value::Array(results))
+        }
+        "getVisits" => {
+            let url = req.string_arg(0).unwrap_or("");
+            let visits = runtime
+                .history()
+                .iter()
+                .filter(|h| h.url == url)
+                .map(|h| {
+                    json!({
+                        "id": h.id,
+                        "visitTime": h.last_visit_time,
+                        "visitId": h.id,
+                        "referringVisitId": "0",
+                        "transition": "link"
+                    })
+                })
+                .collect();
+            Ok(Value::Array(visits))
+        }
+        "addUrl" => {
+            let details = req.options(0).cloned().unwrap_or_default();
+            let url = details.get("url").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let title = details.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let id = runtime.next_history_id().to_string();
+            runtime.history().push(runtime::HistoryItem {
+                id,
+                url,
+                title,
+                last_visit_time: 0,
+                visit_count: 1,
+            });
+            Ok(Value::Null)
+        }
+        "deleteUrl" => {
+            let url = req.string_arg(0).unwrap_or("");
+            runtime.history().retain(|h| h.url != url);
+            Ok(Value::Null)
+        }
+        "deleteRange" => {
+            let range = req.options(0).cloned().unwrap_or_default();
+            let start = range.get("startTime").and_then(|v| v.as_u64()).unwrap_or(0);
+            let end = range.get("endTime").and_then(|v| v.as_u64()).unwrap_or(u64::MAX);
+            runtime.history().retain(|h| h.last_visit_time < start || h.last_visit_time > end);
+            Ok(Value::Null)
+        }
+        "deleteAll" => {
+            runtime.history().clear();
+            Ok(Value::Null)
+        }
+        "onVisited" | "onTitleChanged" | "onVisitRemoved" => event_dispatch(runtime, req),
+        _ => Err(format!("history.{} is not supported", req.method)),
+    }
+}
+
+fn history_to_value(item: &runtime::HistoryItem) -> Value {
+    json!({
+        "id": item.id,
+        "url": item.url,
+        "title": item.title,
+        "lastVisitTime": item.last_visit_time,
+        "visitCount": item.visit_count,
+    })
 }
 
 // ── downloads ──
 
 fn downloads(runtime: &ExtensionRuntime, req: &ApiRequest) -> ApiResponse {
+    fn with_download<F: FnOnce(&mut Map<String, Value>) -> ApiResponse>(runtime: &ExtensionRuntime, id: u64, f: F) -> ApiResponse {
+        let mut downloads = runtime.downloads();
+        let item = downloads.get_mut(&id).ok_or_else(|| format!("Download {} not found", id))?;
+        let obj = item.as_object_mut().ok_or("Corrupt download entry")?;
+        f(obj)
+    }
     match req.method.as_str() {
         "download" => {
             let opts = req.options(0).cloned().unwrap_or_default();
@@ -627,12 +888,54 @@ fn downloads(runtime: &ExtensionRuntime, req: &ApiRequest) -> ApiResponse {
             Ok(item)
         }
         "search" => {
+            let query = req.string_arg(0).unwrap_or("").to_lowercase();
             let downloads = runtime.downloads();
-            Ok(Value::Array(downloads.values().cloned().collect()))
+            let results: Vec<Value> = downloads
+                .values()
+                .filter(|v| {
+                    query.is_empty()
+                        || v.get("url").and_then(|u| u.as_str()).is_some_and(|u| u.to_lowercase().contains(&query))
+                        || v.get("filename").and_then(|u| u.as_str()).is_some_and(|u| u.to_lowercase().contains(&query))
+                })
+                .cloned()
+                .collect();
+            Ok(Value::Array(results))
         }
-        "pause" | "resume" | "cancel" | "erase" | "removeFile" | "acceptDanger"
-        | "show" | "showDefaultFolder" | "open" | "setShelfEnabled" | "getFileIcon" => Ok(Value::Null),
-        _ => Err(format!("downloads.{} not implemented", req.method)),
+        "pause" => with_download(runtime, req.u64_arg(0).ok_or("downloads.pause requires id")?, |obj| {
+            obj.insert("paused".into(), json!(true));
+            Ok(Value::Null)
+        }),
+        "resume" => with_download(runtime, req.u64_arg(0).ok_or("downloads.resume requires id")?, |obj| {
+            obj.insert("paused".into(), json!(false));
+            Ok(Value::Null)
+        }),
+        "cancel" => with_download(runtime, req.u64_arg(0).ok_or("downloads.cancel requires id")?, |obj| {
+            obj.insert("state".into(), json!("interrupted"));
+            obj.insert("paused".into(), json!(false));
+            Ok(Value::Null)
+        }),
+        "erase" => {
+            let ids = req
+                .args
+                .first()
+                .and_then(|v| v.as_array())
+                .map(|arr| arr.iter().filter_map(|v| v.as_u64()).collect::<Vec<_>>())
+                .unwrap_or_default();
+            let mut downloads = runtime.downloads();
+            let erased: Vec<u64> = ids.into_iter().filter(|id| downloads.remove(id).is_some()).collect();
+            Ok(Value::Array(erased.iter().map(|id| json!(id)).collect()))
+        }
+        "removeFile" => with_download(runtime, req.u64_arg(0).ok_or("downloads.removeFile requires id")?, |obj| {
+            obj.insert("exists".into(), json!(false));
+            Ok(Value::Null)
+        }),
+        "acceptDanger" => with_download(runtime, req.u64_arg(0).ok_or("downloads.acceptDanger requires id")?, |obj| {
+            obj.insert("danger".into(), json!("safe"));
+            Ok(Value::Null)
+        }),
+        "show" | "showDefaultFolder" | "open" | "getFileIcon" => Err(format!("downloads.{} requires a UI shell", req.method)),
+        "setShelfEnabled" => Ok(Value::Null),
+        _ => Err(format!("downloads.{} is not supported", req.method)),
     }
 }
 
@@ -642,22 +945,52 @@ fn notifications(runtime: &ExtensionRuntime, req: &ApiRequest) -> ApiResponse {
     match req.method.as_str() {
         "create" => {
             let id = req.string_arg(0).map(|s| s.to_string()).unwrap_or_else(|| format!("notif-{}", runtime.next_download_id()));
-            let _opts = req.args.get(1).or(req.args.first()).cloned().unwrap_or(Value::Null);
-            runtime.notification_items().insert(id.clone(), json!({"id": id.clone()}));
+            let opts = req.args.get(1).or(req.args.first()).cloned().unwrap_or(Value::Null);
+            let mut item = if let Value::Object(obj) = opts { obj } else { Map::new() };
+            item.insert("id".into(), json!(id.clone()));
+            runtime.notification_items().insert(id.clone(), Value::Object(item));
             Ok(json!(id))
         }
-        "update" | "clear" => Ok(json!(true)),
+        "update" => {
+            let id = req.string_arg(0).ok_or("notifications.update requires id")?;
+            let opts = req.args.get(1).or(req.args.first()).cloned().unwrap_or(Value::Null);
+            let mut items = runtime.notification_items();
+            let item = items.get_mut(id).ok_or_else(|| format!("Notification {} not found", id))?;
+            if let Value::Object(obj) = opts {
+                if let Value::Object(existing) = item {
+                    for (k, v) in obj {
+                        existing.insert(k, v);
+                    }
+                }
+            }
+            Ok(json!(true))
+        }
+        "clear" => {
+            let id = req.string_arg(0).ok_or("notifications.clear requires id")?;
+            let removed = runtime.notification_items().remove(id).is_some();
+            Ok(json!(removed))
+        }
         "getAll" => {
             let items = runtime.notification_items();
             Ok(Value::Array(items.values().cloned().collect()))
         }
-        _ => Err(format!("notifications.{} not implemented", req.method)),
+        "onClicked" | "onClosed" | "onButtonClicked" | "onShown" => event_dispatch(runtime, req),
+        _ => Err(format!("notifications.{} is not supported", req.method)),
     }
 }
 
 // ── contextMenus / menus ──
 
 fn context_menus(runtime: &ExtensionRuntime, req: &ApiRequest) -> ApiResponse {
+    fn find_menu_id_by_arg(items: &HashMap<u64, runtime::ContextMenuItem>, arg: &Value) -> Option<u64> {
+        if let Some(id) = arg.as_u64() {
+            return items.get(&id).map(|m| m.id);
+        }
+        if let Some(id) = arg.as_str() {
+            return items.values().find(|m| m.info.get("id").and_then(|v| v.as_str()) == Some(id)).map(|m| m.id);
+        }
+        None
+    }
     match req.method.as_str() {
         "create" => {
             let id = if let Some(s) = req.string_arg(0) {
@@ -668,7 +1001,10 @@ fn context_menus(runtime: &ExtensionRuntime, req: &ApiRequest) -> ApiResponse {
                 String::new()
             };
             let numeric_id = runtime.next_menu_id();
-            let info = req.args.get(1).or(req.args.first()).cloned().unwrap_or(Value::Null);
+            let mut info = req.args.get(1).or(req.args.first()).cloned().unwrap_or(Value::Object(Map::new()));
+            if let Value::Object(ref mut obj) = info {
+                obj.insert("id".into(), json!(id.clone()));
+            }
             runtime.context_menu_items().insert(numeric_id, runtime::ContextMenuItem {
                 id: numeric_id,
                 extension_id: req.extension_id.clone(),
@@ -676,14 +1012,35 @@ fn context_menus(runtime: &ExtensionRuntime, req: &ApiRequest) -> ApiResponse {
             });
             Ok(json!(id))
         }
-        "update" | "remove" => Ok(Value::Null),
+        "update" => {
+            let arg = req.args.first().cloned().unwrap_or(Value::Null);
+            let update = req.args.get(1).cloned().unwrap_or(Value::Null);
+            let mut items = runtime.context_menu_items();
+            let id = find_menu_id_by_arg(&items, &arg).ok_or("contextMenus.update requires a valid id")?;
+            let item = items.get_mut(&id).ok_or("contextMenus.update item not found")?;
+            if let Value::Object(obj) = update {
+                if let Value::Object(ref mut info) = item.info {
+                    for (k, v) in obj {
+                        info.insert(k, v);
+                    }
+                }
+            }
+            Ok(Value::Null)
+        }
+        "remove" => {
+            let arg = req.args.first().cloned().unwrap_or(Value::Null);
+            let mut items = runtime.context_menu_items();
+            let id = find_menu_id_by_arg(&items, &arg).ok_or("contextMenus.remove requires a valid id")?;
+            items.remove(&id);
+            Ok(Value::Null)
+        }
         "removeAll" => {
             runtime.context_menu_items().clear();
             Ok(Value::Null)
         }
         "refresh" => Ok(Value::Null),
-        "onClicked" => event_dispatch(runtime, req),
-        _ => Err(format!("contextMenus.{} not implemented", req.method)),
+        "onClicked" | "onShown" | "onHidden" => event_dispatch(runtime, req),
+        _ => Err(format!("contextMenus.{} is not supported", req.method)),
     }
 }
 
@@ -1044,19 +1401,30 @@ fn extension_info(ext: &LoadedExtension) -> Value {
 
 fn omnibox(runtime: &ExtensionRuntime, req: &ApiRequest) -> ApiResponse {
     match req.method.as_str() {
-        "setDefaultSuggestion" => Ok(Value::Null),
+        "setDefaultSuggestion" => {
+            let suggestion = req.options(1).or_else(|| req.options(0)).cloned().unwrap_or_default();
+            *runtime.omnibox_default_suggestion() = Some(Value::Object(suggestion));
+            Ok(Value::Null)
+        }
         "onInputStarted" | "onInputChanged" | "onInputEntered" | "onInputCancelled" => {
             event_dispatch(runtime, req)
         }
-        _ => Err(format!("omnibox.{} not implemented", req.method)),
+        _ => Err(format!("omnibox.{} is not supported", req.method)),
     }
 }
 
 // ── find ──
 
 fn find(runtime: &ExtensionRuntime, req: &ApiRequest) -> ApiResponse {
-    let _ = (runtime, req);
-    Ok(json!({"count": 0, "rangeData": []}))
+    let query = req.string_arg(0).unwrap_or("").to_lowercase();
+    let active = runtime.tabs().into_iter().find(|t| t.active);
+    let title = active.as_ref().map(|t| t.title.to_lowercase()).unwrap_or_default();
+    let count = if query.is_empty() {
+        0
+    } else {
+        title.matches(&query).count() as u32
+    };
+    Ok(json!({"count": count, "rangeData": []}))
 }
 
 // ── userScripts / identity ──
