@@ -337,7 +337,7 @@ impl PersistentDriverManager {
                 return Ok(());
             }
 
-            let lease = self.acquire_lease_for_capability(capability.clone())?;
+            let lease = self.acquire_lease_for_capability(&capability)?;
             self.held_leases.insert(capability, lease);
             self.sync()?;
             return Ok(());
@@ -352,7 +352,7 @@ impl PersistentDriverManager {
 
     fn acquire_lease_for_capability(
         &self,
-        capability: Capability,
+        capability: &Capability,
     ) -> Result<DriverLease, DriverCatalogError> {
         let driver_id = {
             let mut manager = self.manager.lock().map_err(|_| {
@@ -360,20 +360,20 @@ impl PersistentDriverManager {
                     "driver manager lock poisoned".into(),
                 ))
             })?;
-            match manager.acquire_capability(capability.clone()) {
+            match manager.acquire_capability(capability) {
                 Ok(driver_id) => driver_id,
                 Err(DriverError::CapabilityUnavailable(_)) => {
-                    let source = self.catalog.capability_source(&capability)?;
+                    let source = self.catalog.capability_source(capability)?;
                     let Some(source_uri) = source else {
                         return Err(DriverCatalogError::Driver(
-                            DriverError::CapabilityUnavailable(capability),
+                            DriverError::CapabilityUnavailable(capability.clone()),
                         ));
                     };
 
                     let record = self.catalog.install_manifest_from_source(&source_uri)?;
                     manager.register_driver(record.manifest.clone())?;
                     manager.enable_driver(&record.manifest.id)?;
-                    manager.acquire_capability(capability.clone())?
+                    manager.acquire_capability(capability)?
                 }
                 Err(err) => return Err(DriverCatalogError::Driver(err)),
             }
@@ -382,13 +382,13 @@ impl PersistentDriverManager {
         Ok(DriverLease::new(
             Arc::clone(&self.manager),
             driver_id,
-            capability,
+            capability.clone(),
         ))
     }
 
     pub fn acquire_capability(
         &mut self,
-        capability: Capability,
+        capability: &Capability,
     ) -> Result<String, DriverCatalogError> {
         let acquire_result = {
             let mut manager = self.manager.lock().map_err(|_| {
@@ -396,7 +396,7 @@ impl PersistentDriverManager {
                     "driver manager lock poisoned".into(),
                 ))
             })?;
-            manager.acquire_capability(capability.clone())
+            manager.acquire_capability(capability)
         };
 
         match acquire_result {
@@ -405,10 +405,10 @@ impl PersistentDriverManager {
                 Ok(driver_id)
             }
             Err(DriverError::CapabilityUnavailable(_)) => {
-                let source = self.catalog.capability_source(&capability)?;
+                let source = self.catalog.capability_source(capability)?;
                 let Some(source_uri) = source else {
                     return Err(DriverCatalogError::Driver(
-                        DriverError::CapabilityUnavailable(capability),
+                        DriverError::CapabilityUnavailable(capability.clone()),
                     ));
                 };
 
@@ -497,7 +497,7 @@ impl PersistentDriverManager {
         let settings = self.catalog.capability_settings()?;
         for (capability, enabled) in settings {
             if enabled && !self.held_leases.contains_key(&capability) {
-                let lease = self.acquire_lease_for_capability(capability.clone())?;
+                let lease = self.acquire_lease_for_capability(&capability)?;
                 self.held_leases.insert(capability, lease);
             }
         }
@@ -584,7 +584,7 @@ mod tests {
             )
             .unwrap();
 
-        let driver_id = manager.acquire_capability(Capability::Bluetooth).unwrap();
+        let driver_id = manager.acquire_capability(&Capability::Bluetooth).unwrap();
         assert_eq!(driver_id, "bluetooth");
         assert_eq!(manager.state("bluetooth"), Some(DriverState::Enabled));
     }
