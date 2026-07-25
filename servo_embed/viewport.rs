@@ -297,3 +297,28 @@ fn base64_decode(input: &str) -> Option<Vec<u8>> {
         Some(out)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_open_in_viewport() {
+        // Simple test to ensure thread spawns without panicking and basic properties match
+        let result = ServoViewport::open(800, 600);
+        assert!(result.is_ok(), "Failed to open ServoViewport: {:?}", result.err());
+
+        let viewport = result.unwrap();
+        let snap = viewport.snapshot();
+        assert_eq!(snap.width, 800);
+        assert_eq!(snap.height, 600);
+
+        // Ensure commands can be sent without panicking (even if thread is shutting down)
+        viewport.navigate("https://example.com");
+        viewport.resize(1024, 768);
+        viewport.scroll_by(0.0, 100.0);
+        viewport.find_in_page("test", true);
+        viewport.find_stop();
+        viewport.click_at(10.0, 20.0);
+    }
+}
