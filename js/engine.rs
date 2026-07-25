@@ -238,9 +238,22 @@ mod tests {
             JsValue::Function
         );
         assert_eq!(engine.execute("({ a: 1 })").unwrap(), JsValue::Object);
+    }
 
-        let err_result = engine.execute("invalid js syntax !!!");
-        assert!(err_result.is_err());
+    #[test]
+    fn test_execute_syntax_error() {
+        let mut engine = JsEngine::new().unwrap();
+        let result = engine.execute("invalid js syntax !!!");
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Failed to compile script");
+    }
+
+    #[test]
+    fn test_execute_runtime_error() {
+        let mut engine = JsEngine::new().unwrap();
+        let result = engine.execute("throw new Error('test error');");
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Script execution failed");
     }
 
     #[test]
