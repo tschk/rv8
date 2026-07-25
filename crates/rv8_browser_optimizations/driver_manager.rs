@@ -526,16 +526,16 @@ impl CapabilityBroker {
         Arc::clone(&self.manager)
     }
 
-    pub fn acquire(&self, capability: Capability) -> Result<DriverLease, DriverError> {
+    pub fn acquire(&self, capability: &Capability) -> Result<DriverLease, DriverError> {
         let mut manager = self
             .manager
             .lock()
             .map_err(|_| DriverError::Serialization("driver manager lock poisoned".into()))?;
-        let driver_id = manager.acquire_capability(&capability)?;
+        let driver_id = manager.acquire_capability(capability)?;
         Ok(DriverLease::new(
             Arc::clone(&self.manager),
             driver_id,
-            capability,
+            capability.clone(),
         ))
     }
 }
@@ -637,7 +637,7 @@ mod tests {
 
         let broker = CapabilityBroker::new(manager);
         {
-            let lease = broker.acquire(Capability::Bluetooth).unwrap();
+            let lease = broker.acquire(&Capability::Bluetooth).unwrap();
             assert_eq!(lease.driver_id(), "bluetooth");
             assert_eq!(lease.capability(), &Capability::Bluetooth);
         }
