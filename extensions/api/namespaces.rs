@@ -206,15 +206,31 @@ fn runtime_api(runtime: &ExtensionRuntime, req: &ApiRequest) -> ApiResponse {
             "vendor": "atechnology-company"
         })),
         "id" => Ok(json!(req.extension_id.0)),
-        "sendMessage" | "sendNativeMessage" => Ok(Value::Null),
-        "connect" | "connectNative" => Ok(json!({"name": null, "disconnect": {}, "postMessage": {}, "onMessage": {}, "onDisconnect": {}})),
-        "reload" => Ok(Value::Null),
-        "openOptionsPage" => Ok(Value::Null),
+        "sendMessage" => {
+            let message = req.args.first().cloned().unwrap_or(Value::Null);
+            let sender = json!({"id": req.extension_id.0, "url": "", "tab": null, "frameId": 0});
+            runtime.queue_message(req.extension_id.clone(), sender, message);
+            Ok(Value::Null)
+        }
+        "sendNativeMessage" => Err("runtime.sendNativeMessage is not supported".into()),
+        "connect" | "connectNative" => Err("runtime.connect is not supported".into()),
+        "reload" => {
+            runtime.reload_extension(&req.extension_id)?;
+            Ok(Value::Null)
+        }
+        "openOptionsPage" => {
+            let manifest = runtime.get_manifest(&req.extension_id);
+            if let Some(url) = manifest.as_ref().and_then(|m| m.options_page.as_ref()).or_else(|| manifest.as_ref().and_then(|m| m.options_ui.as_ref()).and_then(|o| o.page.as_ref())) {
+                Ok(json!(format!("chrome-extension://{}/{}", req.extension_id.0, url.trim_start_matches('/'))))
+            } else {
+                Ok(Value::Null)
+            }
+        }
         "setUninstallURL" => Ok(Value::Null),
-        "getPackageDirectoryEntry" => Err("runtime.getPackageDirectoryEntry not implemented".into()),
+        "getPackageDirectoryEntry" => Err("runtime.getPackageDirectoryEntry is not supported".into()),
         "getBackgroundPage" => Ok(Value::Null),
         "getContexts" => Ok(json!([])),
-        _ => Err(format!("runtime.{} not implemented", req.method)),
+        _ => Err(format!("runtime.{} is not supported", req.method)),
     }
 }
 
@@ -753,7 +769,6 @@ fn i18n(runtime: &ExtensionRuntime, req: &ApiRequest) -> ApiResponse {
     match req.method.as_str() {
         "getMessage" => {
             let key = req.string_arg(0).unwrap_or("");
-            // Real implementation would load _locales/{locale}/messages.json.
             let manifest = runtime.get_manifest(&req.extension_id);
             let locale = manifest
                 .as_ref()
@@ -766,11 +781,25 @@ fn i18n(runtime: &ExtensionRuntime, req: &ApiRequest) -> ApiResponse {
             if let Ok(text) = std::fs::read_to_string(path) {
                 if let Ok(messages) = serde_json::from_str::<Value>(&text) {
                     if let Some(msg) = messages.get(key).and_then(|v| v.get("message")).and_then(|v| v.as_str()) {
+                        let mut msg = msg.to_string();
+                        if let Some(subs) = req.args.get(1) {
+                            if let Some(arr) = subs.as_array() {
+                                for (i, sub) in arr.iter().enumerate() {
+                                    let rep = sub.as_str().unwrap_or("");
+                                    msg = msg.replace(&format!("${}$", i + 1), rep);
+                                }
+                            } else if let Some(obj) = subs.as_object() {
+                                for (k, v) in obj {
+                                    let rep = v.as_str().unwrap_or("");
+                                    msg = msg.replace(&format!("${}$", k), rep);
+                                }
+                            }
+                        }
                         return Ok(json!(msg));
                     }
                 }
             }
-            Ok(json!(key))
+            Ok(Value::Null)
         }
         "getAcceptLanguages" => Ok(json!([])),
         "getUILanguage" => Ok(json!("en")),
@@ -806,8 +835,10 @@ fn permissions(runtime: &ExtensionRuntime, req: &ApiRequest) -> ApiResponse {
             }
             Ok(json!({"permissions": permissions, "origins": origins}))
         }
-        "request" | "remove" => Ok(Value::Null),
-        _ => Err(format!("permissions.{} not implemented", req.method)),
+        "request" => Err("permissions.request requires a UI shell to prompt the user".into()),
+        "remove" => Err("permissions.remove requires a UI shell to prompt the user".into()),
+        "onAdded" | "onRemoved" => event_dispatch(runtime, req),
+        _ => Err(format!("permissions.{} is not supported", req.method)),
     }
 }
 
@@ -872,10 +903,25 @@ fn management(runtime: &ExtensionRuntime, req: &ApiRequest) -> ApiResponse {
                 .map(|e| extension_info(&e))
                 .ok_or_else(|| format!("Extension {} not found", id))
         }
-        "uninstallSelf" | "launchApp" | "createAppShortcut" | "setEnabled" | "install" | "uninstall" => {
+        "setEnabled" => {
+            let id = req.string_arg(1).or(req.string_arg(0)).unwrap_or("");
+            let enabled = req
+                .args
+                .get(1)
+                .and_then(|v| v.as_bool())
+                .or_else(|| req.args.first().and_then(|v| v.as_bool()))
+                .unwrap_or(true);
+            runtime.set_enabled(&ExtensionId(id.to_string()), enabled)?;
             Ok(Value::Null)
         }
-        _ => Err(format!("management.{} not implemented", req.method)),
+        "uninstallSelf" => {
+            runtime.uninstall(&req.extension_id)?;
+            Ok(Value::Null)
+        }
+        "launchApp" | "createAppShortcut" | "install" | "uninstall" => {
+            Err(format!("management.{} is not supported", req.method))
+        }
+        _ => Err(format!("management.{} is not supported", req.method)),
     }
 }
 

@@ -121,6 +121,17 @@ pub struct ExtensionRuntime {
     dnr_dynamic_rules: Mutex<HashMap<i64, serde_json::Value>>,
     dnr_session_rules: Mutex<HashMap<i64, serde_json::Value>>,
     action_state: Mutex<HashMap<ExtensionId, serde_json::Value>>,
+    /// Event listeners registered by extensions: key "ext_id|namespace.event".
+    event_listeners: Mutex<HashMap<String, Vec<serde_json::Value>>>,
+    /// Messages queued by runtime.sendMessage until the JS bridge dispatches them.
+    pending_messages: Mutex<Vec<PendingMessage>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PendingMessage {
+    pub extension_id: ExtensionId,
+    pub sender: serde_json::Value,
+    pub message: serde_json::Value,
 }
 
 #[derive(Debug, Clone)]
@@ -149,6 +160,8 @@ impl ExtensionRuntime {
             dnr_dynamic_rules: Mutex::new(HashMap::new()),
             dnr_session_rules: Mutex::new(HashMap::new()),
             action_state: Mutex::new(HashMap::new()),
+            event_listeners: Mutex::new(HashMap::new()),
+            pending_messages: Mutex::new(Vec::new()),
         }
     }
 
@@ -187,6 +200,15 @@ impl ExtensionRuntime {
 
     pub fn unload(&self, id: &ExtensionId) -> bool {
         self.extensions.lock().remove(id).is_some()
+    }
+
+    pub fn uninstall(&self, id: &ExtensionId) -> Result<(), String> {
+        let dir = self.extensions_dir.join(&id.0);
+        self.extensions.lock().remove(id);
+        if dir.exists() {
+            std::fs::remove_dir_all(&dir).map_err(|e| format!("Failed to remove extension dir: {}", e))?;
+        }
+        Ok(())
     }
 
     pub fn list(&self) -> Vec<LoadedExtension> {
@@ -433,6 +455,49 @@ impl ExtensionRuntime {
 
     pub fn action_state(&self) -> parking_lot::MutexGuard<'_, HashMap<ExtensionId, serde_json::Value>> {
         self.action_state.lock()
+    }
+
+    // ── Event listener registry ──
+
+    fn event_key(ext_id: &ExtensionId, namespace: &str, event: &str) -> String {
+        format!("{}|{}.{}" , ext_id.0, namespace, event)
+    }
+
+    pub fn add_event_listener(&self, ext_id: &ExtensionId, namespace: &str, event: &str, listener: serde_json::Value) {
+        let key = Self::event_key(ext_id, namespace, event);
+        self.event_listeners.lock().entry(key).or_default().push(listener);
+    }
+
+    pub fn remove_event_listener(&self, ext_id: &ExtensionId, namespace: &str, event: &str, listener: &serde_json::Value) {
+        let key = Self::event_key(ext_id, namespace, event);
+        let mut listeners = self.event_listeners.lock();
+        if let Some(v) = listeners.get_mut(&key) {
+            v.retain(|l| l != listener);
+        }
+    }
+
+    pub fn has_event_listener(&self, ext_id: &ExtensionId, namespace: &str, event: &str) -> bool {
+        let key = Self::event_key(ext_id, namespace, event);
+        matches!(self.event_listeners.lock().get(&key), Some(v) if !v.is_empty())
+    }
+
+    pub fn queue_message(&self, extension_id: ExtensionId, sender: serde_json::Value, message: serde_json::Value) {
+        self.pending_messages.lock().push(PendingMessage {
+            extension_id,
+            sender,
+            message,
+        });
+    }
+
+    pub fn drain_pending_messages(&self) -> Vec<PendingMessage> {
+        std::mem::take(&mut *self.pending_messages.lock())
+    }
+
+    /// Reload an extension by unloading and re-reading its directory.
+    pub fn reload_extension(&self, id: &ExtensionId) -> Result<(), String> {
+        let dir = self.extensions_dir.join(&id.0);
+        self.unload(id);
+        self.load_from_dir(&dir).map(|_| ())
     }
 
     /// Dispatch an API request into the adapter.
