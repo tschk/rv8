@@ -152,6 +152,10 @@ pub struct ExtensionRuntime {
     history: Mutex<Vec<HistoryItem>>,
     /// Omnibox default suggestion.
     omnibox_default_suggestion: Mutex<Option<serde_json::Value>>,
+    /// Registered content scripts via scripting.registerContentScripts.
+    registered_content_scripts: Mutex<HashMap<String, serde_json::Value>>,
+    /// Registered user scripts (experimental).
+    registered_user_scripts: Mutex<HashMap<String, serde_json::Value>>,
 }
 
 #[derive(Debug, Clone)]
@@ -215,6 +219,8 @@ impl ExtensionRuntime {
             bookmarks: Mutex::new(HashMap::new()),
             history: Mutex::new(Vec::new()),
             omnibox_default_suggestion: Mutex::new(None),
+            registered_content_scripts: Mutex::new(HashMap::new()),
+            registered_user_scripts: Mutex::new(HashMap::new()),
         }
     }
 
@@ -589,6 +595,14 @@ impl ExtensionRuntime {
 
     pub fn omnibox_default_suggestion(&self) -> parking_lot::MutexGuard<'_, Option<serde_json::Value>> {
         self.omnibox_default_suggestion.lock()
+    }
+
+    pub fn registered_content_scripts(&self) -> parking_lot::MutexGuard<'_, HashMap<String, serde_json::Value>> {
+        self.registered_content_scripts.lock()
+    }
+
+    pub fn registered_user_scripts(&self) -> parking_lot::MutexGuard<'_, HashMap<String, serde_json::Value>> {
+        self.registered_user_scripts.lock()
     }
 
     pub fn create_tab_driver(&self, url: &str, active: bool) -> Result<u64, String> {

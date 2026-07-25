@@ -1047,14 +1047,56 @@ fn context_menus(runtime: &ExtensionRuntime, req: &ApiRequest) -> ApiResponse {
 // ── scripting ──
 
 fn scripting(runtime: &ExtensionRuntime, req: &ApiRequest) -> ApiResponse {
-    let _ = runtime;
     match req.method.as_str() {
-        "executeScript" => Ok(json!([])),
-        "insertCSS" | "removeCSS" => Ok(Value::Null),
-        "registerContentScripts" | "unregisterContentScripts" | "updateContentScripts" | "getRegisteredContentScripts" => {
-            Ok(json!([]))
+        "executeScript" => Err("scripting.executeScript requires a JS bridge".into()),
+        "insertCSS" | "removeCSS" => Err(format!("scripting.{} requires a JS bridge", req.method)),
+        "registerContentScripts" => {
+            let scripts = req.args.first().and_then(|v| v.as_array()).cloned().unwrap_or_default();
+            let mut map = runtime.registered_content_scripts();
+            for script in scripts {
+                if let Some(id) = script.get("id").and_then(|v| v.as_str()) {
+                    map.insert(id.to_string(), script);
+                }
+            }
+            Ok(Value::Null)
         }
-        _ => Err(format!("scripting.{} not implemented", req.method)),
+        "updateContentScripts" => {
+            let scripts = req.args.first().and_then(|v| v.as_array()).cloned().unwrap_or_default();
+            let mut map = runtime.registered_content_scripts();
+            for script in scripts {
+                if let Some(id) = script.get("id").and_then(|v| v.as_str()) {
+                    if map.contains_key(id) {
+                        map.insert(id.to_string(), script);
+                    }
+                }
+            }
+            Ok(Value::Null)
+        }
+        "unregisterContentScripts" => {
+            let ids = req
+                .args
+                .first()
+                .and_then(|v| v.as_object())
+                .and_then(|o| o.get("ids"))
+                .and_then(|v| v.as_array())
+                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect::<Vec<_>>())
+                .unwrap_or_default();
+            let mut map = runtime.registered_content_scripts();
+            if ids.is_empty() {
+                map.clear();
+            } else {
+                for id in ids {
+                    map.remove(&id);
+                }
+            }
+            Ok(Value::Null)
+        }
+        "getRegisteredContentScripts" => {
+            let map = runtime.registered_content_scripts();
+            let scripts: Vec<Value> = map.values().cloned().collect();
+            Ok(Value::Array(scripts))
+        }
+        _ => Err(format!("scripting.{} is not supported", req.method)),
     }
 }
 
@@ -1431,9 +1473,37 @@ fn find(runtime: &ExtensionRuntime, req: &ApiRequest) -> ApiResponse {
 
 fn user_scripts(runtime: &ExtensionRuntime, req: &ApiRequest) -> ApiResponse {
     match req.method.as_str() {
-        "register" | "unregister" => Ok(Value::Null),
+        "register" => {
+            let scripts = req.args.first().and_then(|v| v.as_array()).cloned().unwrap_or_default();
+            let mut map = runtime.registered_user_scripts();
+            for script in scripts {
+                if let Some(id) = script.get("id").and_then(|v| v.as_str()) {
+                    map.insert(id.to_string(), script);
+                }
+            }
+            Ok(Value::Null)
+        }
+        "unregister" => {
+            let ids = req
+                .args
+                .first()
+                .and_then(|v| v.as_object())
+                .and_then(|o| o.get("ids"))
+                .and_then(|v| v.as_array())
+                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect::<Vec<_>>())
+                .unwrap_or_default();
+            let mut map = runtime.registered_user_scripts();
+            if ids.is_empty() {
+                map.clear();
+            } else {
+                for id in ids {
+                    map.remove(&id);
+                }
+            }
+            Ok(Value::Null)
+        }
         "onBeforeScript" => event_dispatch(runtime, req),
-        _ => Err(format!("userScripts.{} not implemented", req.method)),
+        _ => Err(format!("userScripts.{} is not supported", req.method)),
     }
 }
 
@@ -1443,33 +1513,33 @@ fn identity(_runtime: &ExtensionRuntime, req: &ApiRequest) -> ApiResponse {
             let suffix = req.string_arg(0).unwrap_or("");
             Ok(json!(format!("https://{}.chromiumapp.org/{}", req.extension_id.0, suffix)))
         }
-        "launchWebAuthFlow" | "getAuthToken" | "removeCachedAuthToken" => Ok(Value::Null),
-        _ => Err(format!("identity.{} not implemented", req.method)),
+        "getAuthToken" | "removeCachedAuthToken" => Ok(Value::Null),
+        "launchWebAuthFlow" => Err("identity.launchWebAuthFlow requires a UI shell".into()),
+        _ => Err(format!("identity.{} is not supported", req.method)),
     }
 }
 
 // ── devtools ──
 
 fn devtools(runtime: &ExtensionRuntime, req: &ApiRequest) -> ApiResponse {
-    let _ = runtime;
     let rest = req.namespace.strip_prefix("devtools.").unwrap_or("");
     match rest {
         "inspectedWindow" => match req.method.as_str() {
-            "eval" => Ok(json!({"result": null, "exceptionDetails": null})),
+            "eval" => Err("devtools.inspectedWindow.eval requires a JS bridge".into()),
             "reload" | "getResources" => Ok(Value::Null),
-            _ => Err(format!("devtools.inspectedWindow.{} not implemented", req.method)),
+            _ => Err(format!("devtools.inspectedWindow.{} is not supported", req.method)),
         },
         "network" => match req.method.as_str() {
             "getHAR" => Ok(json!([])),
             "onNavigated" | "onRequestFinished" => event_dispatch(runtime, req),
-            _ => Err(format!("devtools.network.{} not implemented", req.method)),
+            _ => Err(format!("devtools.network.{} is not supported", req.method)),
         },
         "panels" => match req.method.as_str() {
-            "create" | "elements" => Ok(Value::Null),
+            "create" | "elements" | "openResource" => Ok(Value::Null),
             "themeName" => Ok(json!("dark")),
-            "onThemeChanged" => event_dispatch(runtime, req),
-            _ => Err(format!("devtools.panels.{} not implemented", req.method)),
+            "onThemeChanged" | "onSearch" | "onSelectionChanged" => event_dispatch(runtime, req),
+            _ => Err(format!("devtools.panels.{} is not supported", req.method)),
         },
-        _ => Err(format!("devtools.{} not implemented", rest)),
+        _ => Err(format!("devtools.{} is not supported", rest)),
     }
 }
