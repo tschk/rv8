@@ -68,4 +68,36 @@ mod tests {
             "v8-experimental"
         );
     }
+
+    #[test]
+    fn ensure_v8_selected_runs_once() {
+        // Since `ensure_soliloquy_v8_selected` uses a static `Once`, we run it in a child process
+        // to avoid flakiness from `Once` state bleeding across tests.
+        if std::env::var("SOLILOQUY_TEST_CHILD").is_ok() {
+            clear_env();
+            super::ensure_soliloquy_v8_selected();
+            assert_eq!(std::env::var(SOLILOQUY_JS_ENGINE_ENV).unwrap(), "v8");
+
+            clear_env();
+            // Should be a no-op because of `Once`
+            super::ensure_soliloquy_v8_selected();
+            assert!(std::env::var(SOLILOQUY_JS_ENGINE_ENV).is_err());
+            return;
+        }
+
+        let exe = std::env::current_exe().unwrap();
+        let output = std::process::Command::new(exe)
+            .arg("ensure_v8_selected_runs_once")
+            .env("SOLILOQUY_TEST_CHILD", "1")
+            .output()
+            .unwrap();
+
+        if !output.status.success() {
+            panic!(
+                "Child process test failed:\nstdout: {}\nstderr: {}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
 }
