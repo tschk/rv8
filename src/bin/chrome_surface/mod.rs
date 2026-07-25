@@ -233,4 +233,5 @@ mod native {
 pub use native::{NativeSurface, SurfaceConverter};
 
 #[cfg(not(all(target_os = "macos", feature = "servo-render")))]
+#[allow(dead_code)]
 pub struct NativeSurface;

@@ -62,6 +62,9 @@ pub mod ipc;
 // Performance optimizations
 pub mod optimizations;
 
+// WebExtensions API adapter
+pub mod extensions;
+
 // Servo embedding and V8 integration
 pub mod servo_embed;
 
@@ -74,14 +77,17 @@ compile_error!(
 // Re-exports
 pub use compositor::Compositor;
 pub use core::{Browser, BrowserConfig, Tab, TabId};
+pub use engine::{BrowserEngine, EngineBuilder};
 #[cfg(feature = "rv8-v8")]
 pub use js::JsEngine;
 pub use js::JsValue;
 pub use networking::{NetworkManager, Request, Response};
 pub use renderer::RenderFrame;
+pub use servo_embed::{MouseButton, ServoConfig};
 #[cfg(feature = "servo-render")]
 pub use servo_embed::viewport::{ServoViewport, ViewportSnapshot};
 pub use storage::{Cookie, CookieJar, StorageManager};
+pub use extensions::{ExtensionManifest, ExtensionRuntime};
 
 /// RV8 version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

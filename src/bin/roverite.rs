@@ -1,9 +1,11 @@
-//! RV8 browser chrome — pocb-style gpui shell with Servo rendering.
-//! Build: cargo run --features chrome,servo-render --bin rv8-chrome
-//! Shell: cargo run --features chrome --bin rv8-chrome
+//! Roverite desktop browser shell — pocb-style gpui chrome with Servo rendering.
+//! Build: cargo run --features chrome,servo-render --bin roverite
+//! Shell: cargo run --features chrome --bin roverite
 
 use crepuscularity_gpui::prelude::*;
 use crepuscularity_gpui::Icon;
+use rv8::extensions::ExtensionRuntime;
+use std::sync::Arc;
 
 mod chrome_surface;
 #[cfg(all(target_os = "macos", feature = "servo-render"))]
@@ -15,7 +17,7 @@ use core_foundation::base::TCFType;
 use gpui::img;
 use gpui::{
     actions, point, px, rgb, size, AnyElement, Bounds, FocusHandle, Focusable, KeyBinding,
-    ObjectFit, Render, Window, WindowBounds, WindowOptions,
+    Render, Window, WindowBounds, WindowOptions,
 };
 #[cfg(all(not(target_os = "macos"), feature = "servo-render"))]
 use image::RgbaImage;
@@ -23,8 +25,7 @@ use image::RgbaImage;
 use std::cell::RefCell;
 #[cfg(all(target_os = "macos", feature = "servo-render"))]
 use std::rc::Rc;
-#[cfg(all(not(target_os = "macos"), feature = "servo-render"))]
-use std::sync::Arc;
+
 
 #[cfg(feature = "servo-render")]
 use rv8::servo_embed::ServoHost;
@@ -45,7 +46,7 @@ const SIDEBAR_W: f32 = 240.0;
 const TRAFFIC_H: f32 = 52.0;
 
 actions!(
-    rv8_chrome,
+    roverite,
     [NewTab, CloseTab, GoBack, GoForward, Reload, FocusUrl]
 );
 
@@ -101,11 +102,18 @@ struct Chrome {
     servo_host: Option<ServoHost>,
     #[cfg(all(target_os = "macos", feature = "servo-render"))]
     surface_converter: Rc<RefCell<SurfaceConverter>>,
+    extension_runtime: Arc<ExtensionRuntime>,
 }
 
 impl Chrome {
     fn new(cx: &mut Context<Self>) -> Self {
         let url = "https://google.com".to_string();
+        let app_data = dirs::data_dir().unwrap_or_else(std::env::temp_dir).join("roverite");
+        let extension_runtime = Arc::new(ExtensionRuntime::new(app_data.join("extensions")));
+        let ext_count = extension_runtime.load_all().unwrap_or(0);
+        if ext_count > 0 {
+            tracing::info!("roverite: loaded {} extension(s)", ext_count);
+        }
         Self {
             tabs: vec![Tab::new(1, &url)],
             active: 0,
@@ -119,6 +127,7 @@ impl Chrome {
             servo_host: None,
             #[cfg(all(target_os = "macos", feature = "servo-render"))]
             surface_converter: Rc::new(RefCell::new(SurfaceConverter::new())),
+            extension_runtime,
         }
     }
 
@@ -162,8 +171,10 @@ impl Chrome {
         #[cfg(feature = "servo-render")]
         self.servo_render(&url);
         if let Some(tab) = self.tabs.get_mut(self.active) {
+            let id = tab.id;
             tab.url = url.clone();
             tab.title = Tab::title_from(&tab.url);
+            self.extension_runtime.update_tab_url(id, &url);
             if tab.history.get(tab.history_pos) != Some(&url) {
                 tab.history.truncate(tab.history_pos + 1);
                 tab.history.push(url);
@@ -229,6 +240,8 @@ impl Chrome {
         let url = "https://google.com".to_string();
         self.tabs.push(Tab::new(id, &url));
         self.active = self.tabs.len() - 1;
+        self.extension_runtime.new_tab(id, &url);
+        self.extension_runtime.set_active_tab(id);
         self.url_text = url.clone();
         self.navigate_to(&url, cx);
     }
@@ -237,8 +250,11 @@ impl Chrome {
         if self.tabs.len() <= 1 {
             return;
         }
+        let closed_id = self.tabs[self.active].id;
         self.tabs.remove(self.active);
         self.active = self.active.min(self.tabs.len().saturating_sub(1));
+        self.extension_runtime.close_tab(closed_id);
+        self.extension_runtime.set_active_tab(self.tabs[self.active].id);
         self.url_text.clone_from(&self.tabs[self.active].url);
         cx.notify();
     }
@@ -248,6 +264,7 @@ impl Chrome {
             return;
         }
         self.active = idx;
+        self.extension_runtime.set_active_tab(self.tabs[idx].id);
         self.url_text.clone_from(&self.tabs[idx].url);
         #[cfg(feature = "servo-render")]
         {

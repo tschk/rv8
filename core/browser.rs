@@ -7,6 +7,7 @@ use tokio::sync::{Mutex, RwLock};
 
 use super::{BrowserConfig, ProcessManager, Tab, TabId};
 use crate::compositor::Compositor;
+use crate::extensions::ExtensionRuntime;
 use crate::ipc::BrowserMessage;
 use crate::networking::NetworkManager;
 use crate::optimizations::MemoryOptimizer;
@@ -41,6 +42,9 @@ pub struct Browser {
     /// Memory optimizer / pressure monitor
     memory_optimizer: Arc<MemoryOptimizer>,
 
+    /// Extension runtime / WebExtensions API adapter
+    extension_runtime: Arc<ExtensionRuntime>,
+
     /// Shutdown signal
     shutdown: tokio::sync::broadcast::Sender<()>,
 
@@ -52,6 +56,12 @@ impl Browser {
     /// Create a new browser instance
     pub async fn new(config: BrowserConfig) -> Result<Self, String> {
         info!("Initializing RV8 browser...");
+
+        // Initialize extension runtime before config is moved.
+        let extensions_dir = config.data_dirs.profile_dir.join("extensions");
+        let extension_runtime = Arc::new(ExtensionRuntime::new(extensions_dir));
+        let ext_count = extension_runtime.load_all().unwrap_or(0);
+        info!("Loaded {} extension(s)", ext_count);
 
         // Initialize storage first (needed for cookies, cache)
         let storage = StorageManager::open(&config.data_dirs.profile_dir, config.incognito)
@@ -104,6 +114,7 @@ impl Browser {
             network,
             storage,
             memory_optimizer,
+            extension_runtime,
             shutdown: shutdown_tx,
             browser_events: browser_event_rx,
         })
@@ -122,11 +133,13 @@ impl Browser {
                 let tab_id = TabId(tab_id);
                 let tabs = self.tabs.read().await;
                 if let Some(tab) = tabs.get(&tab_id) {
-                    tab.lock().await.set_title(title);
+                    tab.lock().await.set_title(title.clone());
                 }
+                self.extension_runtime.update_tab_title(tab_id.0, &title);
             }
             BrowserMessage::LoadComplete { tab_id } => {
                 debug!("Tab {} load complete", tab_id);
+                self.extension_runtime.update_tab_status(tab_id, Some("complete".into()));
             }
             BrowserMessage::RendererCrashed { tab_id } => {
                 let tab_id = TabId(tab_id);
@@ -180,6 +193,12 @@ impl Browser {
             }
         }
 
+        // Mirror tab state in the extension runtime
+        self.extension_runtime.new_tab(tab_id.0, url);
+        if *self.active_tab.read().await == Some(tab_id) {
+            self.extension_runtime.set_active_tab(tab_id.0);
+        }
+
         // Navigate to URL
         self.navigate_tab(tab_id, url).await?;
 
@@ -204,6 +223,8 @@ impl Browser {
         tab.navigate(url).await?;
         drop(tab);
         drop(tabs);
+
+        self.extension_runtime.update_tab_url(tab_id.0, url);
 
         self.compositor.request_frame().await;
         Ok(())
@@ -241,6 +262,8 @@ impl Browser {
             self.compositor.request_frame().await;
         }
 
+        self.extension_runtime.close_tab(tab_id.0);
+
         // Terminate renderer process
         self.process_manager.terminate_renderer(tab_id).await;
 
@@ -265,6 +288,8 @@ impl Browser {
         let mut active = self.active_tab.write().await;
         *active = Some(tab_id);
         drop(active);
+
+        self.extension_runtime.set_active_tab(tab_id.0);
 
         self.compositor.request_frame().await;
 

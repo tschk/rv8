@@ -24,8 +24,8 @@ path = "src/bin/viewportd.rs"
 required-features = ["servo-render"]
 
 [[bin]]
-name = "rv8-chrome"
-path = "src/bin/rv8-chrome.rs"
+name = "roverite"
+path = "src/bin/roverite.rs"
 required-features = ["chrome"]
 
 [[test]]

@@ -1,8 +1,6 @@
 # RV8 contributor guide
 
-RV8 is a multi-process browser **engine** (Servo rendering + V8 JS via `js_stub`/`soliloquy_v8`; no SpiderMonkey/mozjs). Like an AOSP base platform crate: storage, IPC, renderer, networking — **no** cross-device sync, **no** `mono-protocol`, **no** gateway or mesh.
-
-Product sync and adapters live only in [`atechnology-company/mono`](https://github.com/atechnology-company/mono) (`crates/mono-adapters`, feature `rv8`).
+RV8 is a multi-process browser **engine** (Servo rendering + V8 JS via `js_stub`/`soliloquy_v8`; no SpiderMonkey/mozjs). Like an AOSP base platform crate: storage, IPC, renderer, networking, extensions.
 
 ## Build and test
 
@@ -36,8 +34,9 @@ Writable state is isolated from the read-only host image via `BrowserDataDirs`:
 ## Architecture (high level)
 
 ```
-main.rs          → process dispatch (browser / renderer / gpu / network)
+main.rs          → process dispatch (browser / renderer / gpu / network / utility)
 core/            → Browser, tabs, config, process manager
+extensions/      → WebExtensions API adapter (runtime, tabs, storage, scripting, DNR, ...)
 storage/         → sled-backed cookies, session, profile meta
 networking/      → NetworkManager (reqwest wiring TODO)
 servo_embed/     → DOM/parser/embedder stubs
@@ -47,11 +46,10 @@ js/              → V8 engine wrapper
 ipc/             → ipc-channel messages
 ```
 
-## Boundaries (do not add here)
+## Boundaries
 
-- No `mono-protocol`, `mono-mesh`, `mono-gateway`, or sync envelopes.
-- No `TransferClass`, device trust, or 2FA flows.
-- Mono consumes RV8 via path dependency + `mono-adapters::rv8` only.
+- No sync envelopes, device trust, or 2FA flows.
+- Product shells live in the Roverite apps; engine behavior and polyfills belong here in `rv8`.
 - Never push to upstream `servo/servo`; use the `tschk/servo` fork for RV8 Servo work.
 
 ## Code style
@@ -62,6 +60,5 @@ ipc/             → ipc-channel messages
 
 ## Related repos
 
-- **mono** — sync protocol, adapters, gateway, browser product shell
-- **rover** — launcher/runtime consumer
+- **roverite** — desktop app shell (previously rover)
 - **soliloquy** — appliance runtime; consumes this RV8 engine checkout
