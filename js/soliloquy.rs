@@ -68,4 +68,34 @@ mod tests {
             "v8-experimental"
         );
     }
+
+    #[test]
+    fn test_ensure_soliloquy_v8_selected() {
+        use super::ensure_soliloquy_v8_selected;
+        let _guard = ENV_LOCK.lock().unwrap();
+
+        // 1. Test it sets the value when unset.
+        clear_env();
+        ensure_soliloquy_v8_selected();
+
+        // Note: this test assumes it is the *first* test to trigger the Once block globally.
+        // If another test triggered it before, this assertion might fail. However, there are no other tests
+        // triggering it.
+        assert_eq!(
+            std::env::var(SOLILOQUY_JS_ENGINE_ENV).expect("env after ensure"),
+            "v8"
+        );
+
+        // 2. Test it is idempotent.
+        ensure_soliloquy_v8_selected();
+        assert_eq!(
+            std::env::var(SOLILOQUY_JS_ENGINE_ENV).expect("env after ensure"),
+            "v8"
+        );
+
+        // 3. Test that since Once has run, it no longer sets it.
+        clear_env();
+        ensure_soliloquy_v8_selected();
+        assert!(std::env::var(SOLILOQUY_JS_ENGINE_ENV).is_err());
+    }
 }
