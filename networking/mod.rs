@@ -26,6 +26,8 @@ pub struct NetworkManager {
     prefetch: PrefetchManager,
     /// Priority queue for in-flight resource requests.
     priority_queue: PriorityQueue,
+    /// HTTP client for making network requests.
+    client: reqwest::Client,
 }
 
 impl NetworkManager {
@@ -36,11 +38,31 @@ impl NetworkManager {
             dns_prefetch: DnsPrefetchCache::new(),
             prefetch: PrefetchManager::new(),
             priority_queue: PriorityQueue::new(DEFAULT_MAX_CONCURRENT),
+            client: reqwest::Client::new(),
         })
     }
 
     pub fn cookie_jar(&self) -> &CookieJar {
         &self.cookies
+    }
+
+    /// Access the underlying HTTP client.
+    pub fn client(&self) -> &reqwest::Client {
+        &self.client
+    }
+
+    pub async fn fetch(&self, request: Request) -> Result<Response, String> {
+        let method = reqwest::Method::from_bytes(request.method.to_uppercase().as_bytes())
+            .map_err(|_| format!("Invalid HTTP method: {}", request.method))?;
+        let response = self
+            .client
+            .request(method, &request.url)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        let status = response.status().as_u16();
+        let body = response.bytes().await.map_err(|e| e.to_string())?.to_vec();
+        Ok(Response { status, body })
     }
 
     /// Access the DNS prefetch cache.
