@@ -213,31 +213,6 @@ mod tests {
     }
 
     #[test]
-    fn test_execute_to_string() {
-        let mut engine = JsEngine::new().unwrap();
-
-        // Test basic arithmetic
-        assert_eq!(engine.execute_to_string("1 + 1").unwrap(), "2");
-
-        // Test string concatenation
-        assert_eq!(engine.execute_to_string("'hello ' + 'world'").unwrap(), "hello world");
-
-        // Test undefined
-        assert_eq!(engine.execute_to_string("undefined").unwrap(), "undefined");
-
-        // Test null
-        assert_eq!(engine.execute_to_string("null").unwrap(), "null");
-
-        // Test object stringification (defaults to [object Object])
-        assert_eq!(engine.execute_to_string("({})").unwrap(), "[object Object]");
-
-        // Test error handling
-        let err_result = engine.execute_to_string("invalid js syntax !!!");
-        assert!(err_result.is_err());
-        assert_eq!(err_result.unwrap_err(), "Failed to compile script");
-    }
-
-    #[test]
     fn test_string_execution() {
         let mut engine = JsEngine::new().unwrap();
         let result = engine.execute_to_string("'hello' + ' world'").unwrap();
