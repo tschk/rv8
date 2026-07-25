@@ -13,6 +13,17 @@ use crate::renderer::RenderFrame;
 
 use ipc_channel::ipc::IpcSender;
 
+/// A content script bundle ready to be injected into a renderer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContentScriptInjection {
+    pub extension_id: String,
+    pub js: Vec<String>,
+    pub css: Vec<String>,
+    pub run_at: String,
+    pub all_frames: bool,
+    pub match_about_blank: bool,
+}
+
 /// Messages from renderer to browser process
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum BrowserMessage {
@@ -61,6 +72,8 @@ pub enum RendererMessage {
     GoForward,
     /// Execute JavaScript
     ExecuteScript { script: String, callback_id: u64 },
+    /// Inject content scripts (JS + CSS) into the current document
+    InjectContentScripts { scripts: Vec<ContentScriptInjection> },
     /// Shutdown renderer
     Shutdown,
 }

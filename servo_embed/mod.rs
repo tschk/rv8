@@ -8,13 +8,14 @@
 //! - V8 (from rv8) handles JavaScript execution
 //! - This module bridges the two engines
 
-use log::{debug, info};
+use log::{debug, info, warn};
 #[cfg(not(feature = "servo-render"))]
 use parking_lot::RwLock;
 use std::sync::Arc;
 #[cfg(feature = "rv8-v8")]
 use tokio::sync::Mutex;
 
+use crate::ipc::ContentScriptInjection;
 use crate::js::JsValue;
 use crate::renderer::RenderFrame;
 
@@ -277,6 +278,27 @@ impl ServoEmbedder {
         #[cfg(not(any(feature = "servo-render", feature = "rv8-v8")))]
         let _ = script;
         Err("JavaScript backend not enabled".to_string())
+    }
+
+    /// Inject content scripts: first CSS as <style> elements, then each JS source.
+    pub async fn inject_content_scripts(&mut self, scripts: Vec<ContentScriptInjection>) {
+        for inj in scripts {
+            if !inj.css.is_empty() {
+                let css = inj.css.join("\n");
+                let css_script = format!(
+                    "(function(){{var s=document.createElement('style');s.textContent={:?};(document.head||document.body||document.documentElement).appendChild(s);}})();",
+                    css
+                );
+                if let Err(e) = self.execute_script(&css_script).await {
+                    warn!("Failed to inject content CSS for {}: {}", inj.extension_id, e);
+                }
+            }
+            for src in &inj.js {
+                if let Err(e) = self.execute_script(src).await {
+                    warn!("Failed to execute content script for {}: {}", inj.extension_id, e);
+                }
+            }
+        }
     }
 
     /// Execute JavaScript and return a typed transport value.

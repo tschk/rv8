@@ -133,6 +133,15 @@ impl RendererClient {
             .send(RendererMessage::Shutdown)
             .map_err(|e| e.to_string())
     }
+
+    pub fn send_inject_content_scripts(
+        &self,
+        scripts: Vec<ContentScriptInjection>,
+    ) -> Result<(), String> {
+        self.tx
+            .send(RendererMessage::InjectContentScripts { scripts })
+            .map_err(|e| e.to_string())
+    }
 }
 
 /// IPC Server for managing channels to child processes

@@ -8,7 +8,7 @@ use tokio::sync::{Mutex, RwLock};
 use super::{BrowserConfig, ProcessManager, Tab, TabId};
 use crate::compositor::Compositor;
 use crate::extensions::ExtensionRuntime;
-use crate::ipc::BrowserMessage;
+use crate::ipc::{BrowserMessage, ContentScriptInjection};
 use crate::networking::NetworkManager;
 use crate::optimizations::MemoryOptimizer;
 use crate::storage::StorageManager;
@@ -140,6 +140,14 @@ impl Browser {
             BrowserMessage::LoadComplete { tab_id } => {
                 debug!("Tab {} load complete", tab_id);
                 self.extension_runtime.update_tab_status(tab_id, Some("complete".into()));
+                let tab_id = TabId(tab_id);
+                let tabs = self.tabs.read().await;
+                if let Some(tab) = tabs.get(&tab_id) {
+                    let tab = tab.lock().await;
+                    let url = self.extension_runtime.tab(tab_id.0).map(|t| t.url).unwrap_or_default();
+                    let injections = self.build_content_script_injections(&url, "document_idle");
+                    let _ = tab.inject_content_scripts(injections);
+                }
             }
             BrowserMessage::RendererCrashed { tab_id } => {
                 let tab_id = TabId(tab_id);
@@ -156,6 +164,39 @@ impl Browser {
             }
         }
         self.compositor.request_frame().await;
+    }
+
+    fn build_content_script_injections(
+        &self,
+        url: &str,
+        run_at_filter: &str,
+    ) -> Vec<ContentScriptInjection> {
+        self.extension_runtime
+            .content_scripts_for_url(url)
+            .into_iter()
+            .filter(|cs| cs.run_at == run_at_filter)
+            .map(|cs| {
+                let ext_id = cs.extension_id.clone();
+                let extension_id = ext_id.0.clone();
+                ContentScriptInjection {
+                    extension_id,
+                    js: cs
+                        .js
+                        .iter()
+                        .filter_map(|p| self.extension_runtime.read_extension_file(&ext_id, p))
+                        .collect(),
+                    css: cs
+                        .css
+                        .iter()
+                        .filter_map(|p| self.extension_runtime.read_extension_file(&ext_id, p))
+                        .collect(),
+                    run_at: cs.run_at,
+                    all_frames: cs.all_frames,
+                    match_about_blank: cs.match_about_blank,
+                }
+            })
+            .filter(|cs| !cs.js.is_empty() || !cs.css.is_empty())
+            .collect()
     }
 
     /// Create a new tab and navigate to the given URL
@@ -220,6 +261,8 @@ impl Browser {
             .ok_or_else(|| format!("Tab {} not found", tab_id.0))?;
 
         let mut tab = tab.lock().await;
+        let start_injections = self.build_content_script_injections(url, "document_start");
+        let _ = tab.inject_content_scripts(start_injections);
         tab.navigate(url).await?;
         drop(tab);
         drop(tabs);

@@ -100,6 +100,9 @@ impl RendererProcess {
             } => {
                 self.execute_script(&script, callback_id).await;
             }
+            RendererMessage::InjectContentScripts { scripts } => {
+                self.embedder.inject_content_scripts(scripts).await;
+            }
             RendererMessage::Shutdown => {
                 self.shutting_down = true;
             }

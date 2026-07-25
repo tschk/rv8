@@ -198,6 +198,14 @@ impl Tab {
         self.state = TabState::Crashed;
     }
 
+    /// Inject content scripts (JS/CSS) into the renderer.
+    pub fn inject_content_scripts(
+        &self,
+        scripts: Vec<crate::ipc::ContentScriptInjection>,
+    ) -> Result<(), String> {
+        self.renderer_client.send_inject_content_scripts(scripts)
+    }
+
     // Getters
     pub fn id(&self) -> TabId {
         self.id
