@@ -118,6 +118,7 @@ impl Browser {
             .await
             .map_err(|e| format!("Failed to init network: {}", e))?;
         let network = Arc::new(network);
+        extension_runtime.set_cookie_jar(network.cookie_jar_arc());
         info!("Network manager initialized");
 
         let (browser_event_tx, browser_event_rx) = tokio::sync::mpsc::unbounded_channel();

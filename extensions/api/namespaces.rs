@@ -6,9 +6,11 @@
 //! can see exactly what is missing.
 
 use serde_json::{json, Map, Value};
+use url::Url;
 
 use super::{ApiRequest, ApiResponse};
 use crate::extensions::permissions::Permission;
+use crate::storage::{Cookie, SameSite};
 use crate::extensions::runtime::{ExtensionId, ExtensionRuntime, ExtensionTab};
 use crate::extensions::storage::StorageArea;
 use crate::extensions::runtime::{self, LoadedExtension};
@@ -875,13 +877,109 @@ fn commands(runtime: &ExtensionRuntime, req: &ApiRequest) -> ApiResponse {
 // ── cookies ──
 
 fn cookies(runtime: &ExtensionRuntime, req: &ApiRequest) -> ApiResponse {
-    let _ = runtime;
+    let jar = runtime.cookie_jar().ok_or("cookies API requires a cookie jar".to_string())?;
     match req.method.as_str() {
-        "get" | "getAll" | "getAllCookieStores" => Ok(json!([])),
-        "set" | "remove" => Ok(Value::Null),
+        "get" => {
+            let details = req.options(0).ok_or("cookies.get requires details")?;
+            let (domain, path) = cookie_domain_and_path(details)?;
+            let name = details.get("name").and_then(|v| v.as_str()).unwrap_or("");
+            Ok(jar.get(&domain, &path, name).map(cookie_to_value).unwrap_or(Value::Null))
+        }
+        "getAll" => {
+            let details = req.options(0).cloned().unwrap_or_default();
+            let domain = details.get("url").and_then(|v| v.as_str()).and_then(|u| Url::parse(u).ok().and_then(|u| u.host_str().map(|h| h.to_string()))).unwrap_or_default();
+            let name_filter = details.get("name").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let cookies = jar
+                .cookies_for_domain(&domain)
+                .into_iter()
+                .filter(|c| name_filter.as_ref().map_or(true, |f| &c.name == f))
+                .map(cookie_to_value)
+                .collect::<Vec<_>>();
+            Ok(Value::Array(cookies))
+        }
+        "getAllCookieStores" => {
+            let tabs = runtime.tabs().into_iter().map(|t| t.id).collect::<Vec<_>>();
+            Ok(json!([{"id":"0","tabIds":tabs,"incognito":false}]))
+        }
+        "set" => {
+            let details = req.options(0).ok_or("cookies.set requires details")?;
+            let cookie = cookie_from_details(details)?;
+            jar.insert(cookie.clone()).map_err(|e| e.to_string())?;
+            Ok(cookie_to_value(cookie))
+        }
+        "remove" => {
+            let details = req.options(0).ok_or("cookies.remove requires details")?;
+            let (domain, path) = cookie_domain_and_path(details)?;
+            let name = details.get("name").and_then(|v| v.as_str()).unwrap_or("");
+            Ok(json!(jar.remove(&domain, &path, name).unwrap_or(false)))
+        }
         "onChanged" => event_dispatch(runtime, req),
-        _ => Err(format!("cookies.{} not implemented", req.method)),
+        _ => Err(format!("cookies.{} is not supported", req.method)),
     }
+}
+
+fn cookie_domain_and_path(details: &Map<String, Value>) -> Result<(String, String), String> {
+    if let Some(url) = details.get("url").and_then(|v| v.as_str()) {
+        let parsed = Url::parse(url).map_err(|e| e.to_string())?;
+        let domain = parsed.host_str().unwrap_or("").to_string();
+        let path = parsed.path().to_string();
+        return Ok((domain, path));
+    }
+    let domain = details.get("domain").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let path = details.get("path").and_then(|v| v.as_str()).unwrap_or("/").to_string();
+    Ok((domain, path))
+}
+
+fn cookie_from_details(details: &Map<String, Value>) -> Result<Cookie, String> {
+    let (domain, path) = cookie_domain_and_path(details)?;
+    let name = details.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let value = details.get("value").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let secure = details.get("secure").and_then(|v| v.as_bool()).unwrap_or(false);
+    let http_only = details.get("httpOnly").and_then(|v| v.as_bool()).unwrap_or(false);
+    let expires_at = details.get("expirationDate").and_then(|v| v.as_f64()).map(|f| f as i64);
+    let same_site = details.get("sameSite").and_then(|v| v.as_str()).and_then(parse_same_site);
+    Ok(Cookie {
+        name,
+        value,
+        domain,
+        path,
+        expires_at,
+        max_age_secs: None,
+        secure,
+        http_only,
+        same_site,
+    })
+}
+
+fn parse_same_site(s: &str) -> Option<SameSite> {
+    match s.to_lowercase().as_str() {
+        "strict" => Some(SameSite::Strict),
+        "lax" => Some(SameSite::Lax),
+        "none" | "no_restriction" => Some(SameSite::None),
+        _ => None,
+    }
+}
+
+fn same_site_to_value(s: SameSite) -> Value {
+    match s {
+        SameSite::Strict => json!("strict"),
+        SameSite::Lax => json!("lax"),
+        SameSite::None => json!("no_restriction"),
+    }
+}
+
+fn cookie_to_value(cookie: Cookie) -> Value {
+    json!({
+        "name": cookie.name,
+        "value": cookie.value,
+        "domain": cookie.domain,
+        "path": cookie.path,
+        "secure": cookie.secure,
+        "httpOnly": cookie.http_only,
+        "sameSite": cookie.same_site.map(same_site_to_value).unwrap_or(json!("no_restriction")),
+        "session": cookie.expires_at.is_none() && cookie.max_age_secs.is_none(),
+        "expirationDate": cookie.expires_at,
+    })
 }
 
 // ── management ──

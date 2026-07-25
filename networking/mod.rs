@@ -46,6 +46,11 @@ impl NetworkManager {
         &self.cookies
     }
 
+    /// Clone a handle to the cookie jar for sharing with the extension runtime.
+    pub fn cookie_jar_arc(&self) -> Arc<CookieJar> {
+        self.cookies.clone()
+    }
+
     /// Access the underlying HTTP client.
     pub fn client(&self) -> &reqwest::Client {
         &self.client

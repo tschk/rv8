@@ -19,6 +19,7 @@ use super::manifest::{Background, ExtensionManifest};
 use super::matchers::{glob_match, url_matches_pattern};
 use super::permissions::{Permission, PermissionSet};
 use super::storage::ExtensionStorage;
+use crate::storage::CookieJar;
 
 /// Stable identifier for an installed extension.
 /// For unpacked loads this is the directory name; store extensions would use
@@ -141,6 +142,8 @@ pub struct ExtensionRuntime {
     pending_messages: Mutex<Vec<PendingMessage>>,
     /// Optional driver that routes extension tab operations to the browser process.
     tab_driver: Mutex<Option<Arc<dyn TabDriver>>>,
+    /// Optional handle to the browser cookie jar.
+    cookie_jar: Mutex<Option<Arc<CookieJar>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -179,6 +182,7 @@ impl ExtensionRuntime {
             event_listeners: Mutex::new(HashMap::new()),
             pending_messages: Mutex::new(Vec::new()),
             tab_driver: Mutex::new(None),
+            cookie_jar: Mutex::new(None),
         }
     }
 
@@ -521,6 +525,18 @@ impl ExtensionRuntime {
 
     pub fn set_tab_driver(&self, driver: Arc<dyn TabDriver>) {
         *self.tab_driver.lock() = Some(driver);
+    }
+
+    pub fn set_cookie_jar(&self, jar: Arc<CookieJar>) {
+        *self.cookie_jar.lock() = Some(jar);
+    }
+
+    pub fn with_cookie_jar<R>(&self, f: impl FnOnce(&CookieJar) -> R) -> Option<R> {
+        self.cookie_jar.lock().as_ref().map(|jar| f(jar))
+    }
+
+    pub fn cookie_jar(&self) -> Option<Arc<CookieJar>> {
+        self.cookie_jar.lock().clone()
     }
 
     pub fn create_tab_driver(&self, url: &str, active: bool) -> Result<u64, String> {
