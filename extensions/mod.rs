@@ -7,6 +7,7 @@
 
 pub mod api;
 pub mod manifest;
+pub mod matchers;
 pub mod permissions;
 pub mod runtime;
 pub mod storage;

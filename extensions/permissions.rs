@@ -2,6 +2,7 @@
 //!
 //! Maps string permission tokens to a typed set and provides host matching.
 
+use super::matchers::url_matches_pattern;
 use std::collections::HashSet;
 use std::str::FromStr;
 
@@ -144,7 +145,7 @@ impl PermissionSet {
     pub fn has_host(&self, url: &str) -> bool {
         for perm in &self.permissions {
             if let Permission::Host(pattern) = perm {
-                if host_matches(pattern, url) {
+                if url_matches_pattern(pattern, url) {
                     return true;
                 }
             }
@@ -158,45 +159,6 @@ impl PermissionSet {
 
     pub fn insert(&mut self, perm: Permission) {
         self.permissions.insert(perm);
-    }
-}
-
-fn host_matches(pattern: &str, url: &str) -> bool {
-    let Ok(parsed) = url::Url::parse(url) else {
-        return false;
-    };
-    let host = parsed.host_str().unwrap_or("");
-    let scheme = parsed.scheme();
-
-    if pattern == "<all_urls>" {
-        return scheme == "http" || scheme == "https";
-    }
-
-    if pattern == "<all_hosts>" {
-        return host.is_empty() || (scheme == "http" || scheme == "https");
-    }
-
-    if let Some(rest) = pattern.strip_prefix("*://") {
-        return host_matches_host(rest, host);
-    }
-    if pattern.starts_with("http://") || pattern.starts_with("https://") || pattern.starts_with("file://") {
-        let pattern_host = pattern.split('/').nth(2).unwrap_or("");
-        host_matches_host(pattern_host, host)
-    } else {
-        false
-    }
-}
-
-fn host_matches_host(pattern_host: &str, host: &str) -> bool {
-    if pattern_host.is_empty() {
-        return true;
-    }
-    if let Some(suffix) = pattern_host.strip_prefix("*.") {
-        host == suffix || host.ends_with(&format!(".{}", suffix))
-    } else if pattern_host == "*" {
-        true
-    } else {
-        host == pattern_host
     }
 }
 

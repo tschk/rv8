@@ -13,10 +13,11 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use super::manifest::ExtensionManifest;
+use super::api::{ApiRequest, ApiResponse};
+use super::manifest::{Background, ExtensionManifest};
+use super::matchers::{glob_match, url_matches_pattern};
 use super::permissions::{Permission, PermissionSet};
 use super::storage::ExtensionStorage;
-use super::api::{ApiRequest, ApiResponse};
 
 /// Stable identifier for an installed extension.
 /// For unpacked loads this is the directory name; store extensions would use
@@ -73,6 +74,25 @@ impl LoadedExtension {
             permissions,
         }
     }
+}
+
+/// A content script that should be injected for a given URL.
+#[derive(Debug, Clone)]
+pub struct ContentScriptMatch {
+    pub extension_id: ExtensionId,
+    pub js: Vec<String>,
+    pub css: Vec<String>,
+    pub run_at: String,
+    pub all_frames: bool,
+    pub match_about_blank: bool,
+}
+
+/// Background script / service worker descriptor for an extension.
+#[derive(Debug, Clone)]
+pub struct BackgroundScript {
+    pub extension_id: ExtensionId,
+    pub scripts: Vec<String>,
+    pub service_worker: Option<String>,
 }
 
 /// In-memory alarm entry.
@@ -208,6 +228,82 @@ impl ExtensionRuntime {
 
     pub fn storage(&self) -> &ExtensionStorage {
         &self.storage
+    }
+
+    // ── Content / background script enumeration ──
+
+    /// Return all content scripts whose `matches` patterns cover `url`.
+    pub fn content_scripts_for_url(&self, url: &str) -> Vec<ContentScriptMatch> {
+        let exts = self.extensions.lock();
+        let mut matches = Vec::new();
+        for ext in exts.values().filter(|e| e.enabled) {
+            if let Some(scripts) = &ext.manifest.content_scripts {
+                for cs in scripts {
+                    if cs.matches.iter().any(|pat| url_matches_pattern(pat, url)) {
+                        matches.push(ContentScriptMatch {
+                            extension_id: ext.id.clone(),
+                            js: cs.js.clone().unwrap_or_default(),
+                            css: cs.css.clone().unwrap_or_default(),
+                            run_at: cs.run_at.clone().unwrap_or_else(|| "document_idle".into()),
+                            all_frames: cs.all_frames.unwrap_or(false),
+                            match_about_blank: cs.match_about_blank.unwrap_or(false),
+                        });
+                    }
+                }
+            }
+        }
+        matches
+    }
+
+    /// Return background scripts / service workers for enabled extensions.
+    pub fn background_scripts(&self) -> Vec<BackgroundScript> {
+        let exts = self.extensions.lock();
+        exts.values()
+            .filter(|e| e.enabled)
+            .filter_map(|ext| {
+                ext.manifest.background.as_ref().map(|bg| BackgroundScript {
+                    extension_id: ext.id.clone(),
+                    scripts: bg.scripts(),
+                    service_worker: match bg {
+                        Background::Mv3 { service_worker, .. } => Some(service_worker.clone()),
+                        _ => None,
+                    },
+                })
+            })
+            .collect()
+    }
+
+    /// Read an extension file as a UTF-8 string.
+    pub fn read_extension_file(&self, id: &ExtensionId, path: &str) -> Option<String> {
+        let exts = self.extensions.lock();
+        let ext = exts.get(id)?;
+        let rel = path.trim_start_matches('/');
+        let full = ext.root.join(rel);
+        std::fs::read_to_string(full).ok()
+    }
+
+    /// Check whether `resource_path` is web-accessible from `url` for `ext_id`.
+    pub fn is_web_accessible_resource(&self, id: &ExtensionId, resource_path: &str, url: &str) -> bool {
+        let exts = self.extensions.lock();
+        let Some(ext) = exts.get(id) else { return false };
+        let Some(wars) = &ext.manifest.web_accessible_resources else { return false };
+        for war in wars {
+            if !war.resources.iter().any(|r| glob_match(r, resource_path)) {
+                continue;
+            }
+            if let Some(ids) = &war.extension_ids {
+                if !ids.iter().any(|i| i == &id.0) {
+                    continue;
+                }
+            }
+            if let Some(m) = &war.matches {
+                if !m.iter().any(|p| url_matches_pattern(p, url)) {
+                    continue;
+                }
+            }
+            return true;
+        }
+        false
     }
 
     // ── Tab state mirror (updated by Browser) ──
@@ -383,5 +479,47 @@ mod tests {
 
         let tab = rt.active_tab().unwrap();
         assert_eq!(tab.title, "Example");
+    }
+
+    #[test]
+    fn content_scripts_and_resources_match() {
+        let dir = tempfile::tempdir().unwrap();
+        let ext_dir = dir.path().join("cs-ext");
+        std::fs::create_dir(&ext_dir).unwrap();
+        std::fs::create_dir(ext_dir.join("js")).unwrap();
+        std::fs::write(
+            ext_dir.join("manifest.json"),
+            r#"{
+                "manifest_version": 3,
+                "name": "CS",
+                "version": "1.0",
+                "content_scripts": [{
+                    "matches": ["*://*.example.com/*"],
+                    "js": ["js/inject.js"],
+                    "css": ["js/style.css"],
+                    "run_at": "document_start"
+                }],
+                "web_accessible_resources": [{
+                    "resources": ["js/inject.js"],
+                    "matches": ["*://*.example.com/*"]
+                }]
+            }"#,
+        )
+        .unwrap();
+        std::fs::write(ext_dir.join("js/inject.js"), "console.log('injected');").unwrap();
+
+        let rt = ExtensionRuntime::new(dir.path().join("extensions"));
+        let id = rt.load_from_dir(&ext_dir).unwrap();
+
+        let matches = rt.content_scripts_for_url("https://foo.example.com/page");
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].js, vec!["js/inject.js"]);
+        assert_eq!(matches[0].run_at, "document_start");
+
+        assert!(rt.content_scripts_for_url("https://other.org").is_empty());
+
+        assert_eq!(rt.read_extension_file(&id, "js/inject.js"), Some("console.log('injected');".into()));
+        assert!(rt.is_web_accessible_resource(&id, "js/inject.js", "https://foo.example.com/page"));
+        assert!(!rt.is_web_accessible_resource(&id, "js/missing.js", "https://foo.example.com/page"));
     }
 }
