@@ -641,4 +641,133 @@ mod tests {
 
         assert_eq!(engine.dispatch_event(&event), 0);
     }
+
+    #[test]
+    fn test_dispatch_event_with_listeners() {
+        use crate::networking::WebSocketManager;
+        use crate::servo_embed::dom::{DomEvent, DomTree};
+        use crate::servo_embed::web_apis::{ConsoleApi, StorageApi, TimerManager};
+        use crate::storage::IndexedDb;
+        use parking_lot::RwLock;
+        use std::sync::Arc;
+
+        let mut engine = JsEngine::new().unwrap();
+        let dom_tree = Arc::new(RwLock::new(DomTree::new()));
+        let console_api = Arc::new(RwLock::new(ConsoleApi::new()));
+        let timer_manager = Arc::new(RwLock::new(TimerManager::new()));
+        let local_storage = Arc::new(RwLock::new(StorageApi::new(1024)));
+        let session_storage = Arc::new(RwLock::new(StorageApi::new(1024)));
+        let indexeddb = Arc::new(RwLock::new(IndexedDb::ephemeral()));
+        let websocket_manager = Arc::new(RwLock::new(WebSocketManager::new()));
+
+        engine.initialize(V8ContextData::new(
+            dom_tree.clone(),
+            console_api,
+            timer_manager,
+            local_storage,
+            session_storage,
+            indexeddb,
+            websocket_manager,
+        ));
+
+        // Create a root element and attach two listeners
+        engine
+            .execute(
+                "var el = document.createElement('div');
+                 el.setAttribute('id', 'root');
+                 document.appendChild(el);
+                 var seen = [];
+                 document.addEventListener('custom_event', function(event) {
+                   seen.push(event.type + ':' + event.clientX + ':' + event.key);
+                 });
+                 document.addEventListener('custom_event', function(event) {
+                   seen.push('second');
+                 });",
+            )
+            .unwrap();
+
+        let event = DomEvent {
+            event_type: "custom_event".to_string(),
+            target_id: dom_tree.read().document_id(),
+            client_x: Some(42.0),
+            client_y: None,
+            button: None,
+            key: Some("Enter".to_string()),
+        };
+
+        // Dispatch the event and verify the count
+        assert_eq!(engine.dispatch_event(&event), 2);
+
+        // Verify that the JS state was updated by both callbacks
+        let seen_val = engine.execute_to_string("seen.join('|')").unwrap();
+        assert_eq!(seen_val, "custom_event:42:Enter|second");
+    }
+
+    #[test]
+    fn test_dispatch_event_wrong_target_or_type() {
+        use crate::networking::WebSocketManager;
+        use crate::servo_embed::dom::{DomEvent, DomTree};
+        use crate::servo_embed::web_apis::{ConsoleApi, StorageApi, TimerManager};
+        use crate::storage::IndexedDb;
+        use parking_lot::RwLock;
+        use std::sync::Arc;
+
+        let mut engine = JsEngine::new().unwrap();
+        let dom_tree = Arc::new(RwLock::new(DomTree::new()));
+        let console_api = Arc::new(RwLock::new(ConsoleApi::new()));
+        let timer_manager = Arc::new(RwLock::new(TimerManager::new()));
+        let local_storage = Arc::new(RwLock::new(StorageApi::new(1024)));
+        let session_storage = Arc::new(RwLock::new(StorageApi::new(1024)));
+        let indexeddb = Arc::new(RwLock::new(IndexedDb::ephemeral()));
+        let websocket_manager = Arc::new(RwLock::new(WebSocketManager::new()));
+
+        engine.initialize(V8ContextData::new(
+            dom_tree.clone(),
+            console_api,
+            timer_manager,
+            local_storage,
+            session_storage,
+            indexeddb,
+            websocket_manager,
+        ));
+
+        // Create a root element and attach a listener
+        engine
+            .execute(
+                "var el = document.createElement('div');
+                 el.setAttribute('id', 'root');
+                 document.appendChild(el);
+                 var seen = false;
+                 document.addEventListener('custom_event', function(event) {
+                   seen = true;
+                 });",
+            )
+            .unwrap();
+
+        // Dispatch an event with the wrong type
+        let wrong_type_event = DomEvent {
+            event_type: "wrong_type".to_string(),
+            target_id: dom_tree.read().document_id(),
+            client_x: None,
+            client_y: None,
+            button: None,
+            key: None,
+        };
+
+        assert_eq!(engine.dispatch_event(&wrong_type_event), 0);
+        assert_eq!(engine.execute_to_string("seen").unwrap(), "false");
+
+        // Dispatch an event with the wrong target
+        let wrong_target_event = DomEvent {
+            event_type: "custom_event".to_string(),
+            target_id: 9999, // Fake ID
+            client_x: None,
+            client_y: None,
+            button: None,
+            key: None,
+        };
+
+        assert_eq!(engine.dispatch_event(&wrong_target_event), 0);
+        assert_eq!(engine.execute_to_string("seen").unwrap(), "false");
+    }
 }
