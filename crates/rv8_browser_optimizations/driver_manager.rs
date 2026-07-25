@@ -408,8 +408,8 @@ impl DriverManager {
             .ok_or_else(|| DriverError::CapabilityUnavailable(capability.clone()))
     }
 
-    pub fn acquire_capability(&mut self, capability: Capability) -> Result<String, DriverError> {
-        let driver_id = self.resolve_capability(&capability)?;
+    pub fn acquire_capability(&mut self, capability: &Capability) -> Result<String, DriverError> {
+        let driver_id = self.resolve_capability(capability)?;
         self.enable_driver(&driver_id)?;
 
         let record = self
@@ -526,16 +526,16 @@ impl CapabilityBroker {
         Arc::clone(&self.manager)
     }
 
-    pub fn acquire(&self, capability: Capability) -> Result<DriverLease, DriverError> {
+    pub fn acquire(&self, capability: &Capability) -> Result<DriverLease, DriverError> {
         let mut manager = self
             .manager
             .lock()
             .map_err(|_| DriverError::Serialization("driver manager lock poisoned".into()))?;
-        let driver_id = manager.acquire_capability(capability.clone())?;
+        let driver_id = manager.acquire_capability(capability)?;
         Ok(DriverLease::new(
             Arc::clone(&self.manager),
             driver_id,
-            capability,
+            capability.clone(),
         ))
     }
 }
@@ -603,7 +603,7 @@ mod tests {
             .register_driver(signed_manifest("bluetooth", Capability::Bluetooth))
             .unwrap();
 
-        let driver_id = manager.acquire_capability(Capability::Bluetooth).unwrap();
+        let driver_id = manager.acquire_capability(&Capability::Bluetooth).unwrap();
         assert_eq!(driver_id, "bluetooth");
         assert_eq!(manager.state("bluetooth"), Some(DriverState::Enabled));
         assert_eq!(manager.active_leases("bluetooth"), Some(1));
@@ -637,7 +637,7 @@ mod tests {
 
         let broker = CapabilityBroker::new(manager);
         {
-            let lease = broker.acquire(Capability::Bluetooth).unwrap();
+            let lease = broker.acquire(&Capability::Bluetooth).unwrap();
             assert_eq!(lease.driver_id(), "bluetooth");
             assert_eq!(lease.capability(), &Capability::Bluetooth);
         }
