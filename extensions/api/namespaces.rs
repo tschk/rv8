@@ -221,15 +221,8 @@ fn runtime_api(runtime: &ExtensionRuntime, req: &ApiRequest) -> ApiResponse {
             runtime.reload_extension(&req.extension_id)?;
             Ok(Value::Null)
         }
-        "openOptionsPage" => {
-            let manifest = runtime.get_manifest(&req.extension_id);
-            if let Some(url) = manifest.as_ref().and_then(|m| m.options_page.as_ref()).or_else(|| manifest.as_ref().and_then(|m| m.options_ui.as_ref()).and_then(|o| o.page.as_ref())) {
-                Ok(json!(format!("chrome-extension://{}/{}", req.extension_id.0, url.trim_start_matches('/'))))
-            } else {
-                Ok(Value::Null)
-            }
-        }
-        "setUninstallURL" => Ok(Value::Null),
+        "openOptionsPage" => Err("runtime.openOptionsPage requires a UI shell".into()),
+        "setUninstallURL" => Err("runtime.setUninstallURL requires a UI shell".into()),
         "getPackageDirectoryEntry" => Err("runtime.getPackageDirectoryEntry is not supported".into()),
         "getBackgroundPage" => Ok(Value::Null),
         "getContexts" => Ok(json!([])),
@@ -1510,7 +1503,9 @@ fn identity(_runtime: &ExtensionRuntime, req: &ApiRequest) -> ApiResponse {
             let suffix = req.string_arg(0).unwrap_or("");
             Ok(json!(format!("https://{}.chromiumapp.org/{}", req.extension_id.0, suffix)))
         }
-        "getAuthToken" | "removeCachedAuthToken" => Ok(Value::Null),
+        "getAuthToken" | "removeCachedAuthToken" => {
+            Err(format!("identity.{} requires an accounts/OAuth UI shell", req.method))
+        }
         "launchWebAuthFlow" => Err("identity.launchWebAuthFlow requires a UI shell".into()),
         _ => Err(format!("identity.{} is not supported", req.method)),
     }
