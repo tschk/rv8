@@ -104,7 +104,7 @@ impl Browser {
         // Initialize extension runtime before config is moved.
         let extensions_dir = config.data_dirs.profile_dir.join("extensions");
         let extension_runtime = Arc::new(ExtensionRuntime::new(extensions_dir));
-        let ext_count = extension_runtime.load_all().unwrap_or(0);
+        let ext_count = extension_runtime.clone().bind().load_all().unwrap_or(0);
         info!("Loaded {} extension(s)", ext_count);
 
         // Initialize storage first (needed for cookies, cache)

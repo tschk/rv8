@@ -6,6 +6,8 @@
 //! bookmarks, history, downloads, notifications, etc.).
 
 pub mod api;
+#[cfg(feature = "rv8-v8")]
+pub mod js_bridge;
 pub mod manifest;
 pub mod matchers;
 pub mod permissions;

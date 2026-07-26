@@ -12,9 +12,11 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 use super::api::{ApiRequest, ApiResponse};
+#[cfg(feature = "rv8-v8")]
+use super::js_bridge::BackgroundScriptRuntime;
 use super::manifest::{Background, ExtensionManifest};
 use super::matchers::{glob_match, url_matches_pattern};
 use super::permissions::{Permission, PermissionSet};
@@ -156,6 +158,11 @@ pub struct ExtensionRuntime {
     registered_content_scripts: Mutex<HashMap<String, serde_json::Value>>,
     /// Registered user scripts (experimental).
     registered_user_scripts: Mutex<HashMap<String, serde_json::Value>>,
+    /// Weak reference to the `Arc<ExtensionRuntime>` that owns this instance.
+    self_ref: Mutex<Option<Weak<ExtensionRuntime>>>,
+    /// Background script V8 engine handles, keyed by extension id.
+    #[cfg(feature = "rv8-v8")]
+    background_engines: Mutex<HashMap<ExtensionId, BackgroundScriptRuntime>>,
 }
 
 #[derive(Debug, Clone)]
@@ -221,6 +228,9 @@ impl ExtensionRuntime {
             omnibox_default_suggestion: Mutex::new(None),
             registered_content_scripts: Mutex::new(HashMap::new()),
             registered_user_scripts: Mutex::new(HashMap::new()),
+            self_ref: Mutex::new(None),
+            #[cfg(feature = "rv8-v8")]
+            background_engines: Mutex::new(HashMap::new()),
         }
     }
 
@@ -232,15 +242,62 @@ impl ExtensionRuntime {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
-                if let Err(e) = self.load_from_dir(&path) {
-                    warn!("Failed to load extension at {:?}: {}", path, e);
-                } else {
-                    count += 1;
+                match self.load_from_dir(&path) {
+                    Ok(id) => {
+                        #[cfg(feature = "rv8-v8")]
+                        {
+                            let scripts = self.background_script_sources(&id);
+                            if !scripts.is_empty() {
+                                self.start_background_engine(id, scripts);
+                            }
+                        }
+                        #[cfg(not(feature = "rv8-v8"))]
+                        let _ = id;
+                        count += 1;
+                    }
+                    Err(e) => warn!("Failed to load extension at {:?}: {}", path, e),
                 }
             }
         }
         info!("Loaded {} extension(s) from {:?}", count, self.extensions_dir);
         Ok(count)
+    }
+
+    /// Bind this `ExtensionRuntime` to its owning `Arc` so background engines
+    /// can obtain a `Weak` reference back to the runtime.
+    pub fn bind(self: Arc<Self>) -> Arc<Self> {
+        *self.self_ref.lock() = Some(Arc::downgrade(&self));
+        self
+    }
+
+    /// Read the background / service_worker script sources for `id`.
+    #[cfg(feature = "rv8-v8")]
+    pub fn background_script_sources(&self, id: &ExtensionId) -> Vec<String> {
+        let exts = self.extensions.lock();
+        let Some(ext) = exts.get(id) else { return Vec::new(); };
+        let scripts = ext.manifest.background.as_ref().map(|bg| bg.scripts()).unwrap_or_default();
+        scripts
+            .iter()
+            .filter_map(|p| {
+                let rel = p.trim_start_matches('/');
+                let full = ext.root.join(rel);
+                std::fs::read_to_string(full).ok()
+            })
+            .collect()
+    }
+
+    /// Start a V8 background script engine for `extension_id`.
+    #[cfg(feature = "rv8-v8")]
+    pub fn start_background_engine(&self, extension_id: ExtensionId, scripts: Vec<String>) {
+        let runtime = match self.self_ref.lock().as_ref().and_then(|w| w.upgrade()) {
+            Some(r) => r,
+            None => {
+                warn!("ExtensionRuntime not bound; cannot start background engine for {}", extension_id.0);
+                return;
+            }
+        };
+        let handle = BackgroundScriptRuntime::new(extension_id.clone(), scripts, Arc::downgrade(&runtime));
+        self.background_engines.lock().insert(extension_id, handle);
     }
 
     /// Load a single unpacked extension directory.

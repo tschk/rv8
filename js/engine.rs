@@ -23,8 +23,8 @@ pub(crate) fn init_v8() {
 
 /// V8 JavaScript engine
 pub struct JsEngine {
-    isolate: v8::OwnedIsolate,
-    context: v8::Global<v8::Context>,
+    pub(crate) isolate: v8::OwnedIsolate,
+    pub(crate) context: v8::Global<v8::Context>,
     cdp: CdpSessionState,
 }
 

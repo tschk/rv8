@@ -45,6 +45,7 @@ pub mod renderer;
 pub mod engine;
 
 // JavaScript engine
+#[allow(warnings)]
 pub mod js;
 
 // GPU compositor
@@ -66,6 +67,7 @@ pub mod optimizations;
 pub mod extensions;
 
 // Servo embedding and V8 integration
+#[allow(warnings)]
 pub mod servo_embed;
 
 #[cfg(all(feature = "servo-render", feature = "rv8-v8"))]

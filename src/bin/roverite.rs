@@ -110,7 +110,7 @@ impl Chrome {
         let url = "https://google.com".to_string();
         let app_data = dirs::data_dir().unwrap_or_else(std::env::temp_dir).join("roverite");
         let extension_runtime = Arc::new(ExtensionRuntime::new(app_data.join("extensions")));
-        let ext_count = extension_runtime.load_all().unwrap_or(0);
+        let ext_count = extension_runtime.clone().bind().load_all().unwrap_or(0);
         if ext_count > 0 {
             tracing::info!("roverite: loaded {} extension(s)", ext_count);
         }
