@@ -1038,7 +1038,49 @@ fn context_menus(runtime: &ExtensionRuntime, req: &ApiRequest) -> ApiResponse {
 
 fn scripting(runtime: &ExtensionRuntime, req: &ApiRequest) -> ApiResponse {
     match req.method.as_str() {
-        "executeScript" => Err("scripting.executeScript requires a JS bridge".into()),
+        "executeScript" => {
+            let injection = req
+                .args
+                .first()
+                .and_then(|v| v.as_object())
+                .ok_or("scripting.executeScript requires an injection object")?;
+            let target = injection
+                .get("target")
+                .and_then(|v| v.as_object())
+                .ok_or("scripting.executeScript requires a target")?;
+            let tab_id = target
+                .get("tabId")
+                .and_then(|v| v.as_u64())
+                .ok_or("scripting.executeScript requires target.tabId")?;
+            let code = if let Some(code) = injection.get("code").and_then(|v| v.as_str()) {
+                code.to_string()
+            } else if let Some(func) = injection.get("func").and_then(|v| v.as_str()) {
+                format!("({})();", func)
+            } else if let Some(files) = injection.get("files").and_then(|v| v.as_array()) {
+                let mut combined = String::new();
+                for f in files {
+                    if let Some(path) = f.as_str() {
+                        if let Some(content) = runtime.read_extension_file(&req.extension_id, path) {
+                            combined.push_str(&content);
+                            combined.push('\n');
+                        } else {
+                            return Err(format!(
+                                "scripting.executeScript: could not read file {}",
+                                path
+                            ));
+                        }
+                    }
+                }
+                if combined.is_empty() {
+                    return Err("scripting.executeScript: no valid files".into());
+                }
+                combined
+            } else {
+                return Err("scripting.executeScript requires code, func, or files".into());
+            };
+            let result = runtime.execute_script_tab_driver(tab_id, &code)?;
+            Ok(json!([{"result": result}]))
+        }
         "insertCSS" | "removeCSS" => Err(format!("scripting.{} requires a JS bridge", req.method)),
         "registerContentScripts" => {
             let scripts = req.args.first().and_then(|v| v.as_array()).cloned().unwrap_or_default();
@@ -1517,7 +1559,16 @@ fn devtools(runtime: &ExtensionRuntime, req: &ApiRequest) -> ApiResponse {
     let rest = req.namespace.strip_prefix("devtools.").unwrap_or("");
     match rest {
         "inspectedWindow" => match req.method.as_str() {
-            "eval" => Err("devtools.inspectedWindow.eval requires a JS bridge".into()),
+            "eval" => {
+                let expr = req
+                    .string_arg(0)
+                    .ok_or("devtools.inspectedWindow.eval requires an expression")?;
+                let id = runtime.active_tab().map(|t| t.id).unwrap_or(0);
+                match runtime.execute_script_tab_driver(id, expr) {
+                    Ok(result) => Ok(json!([result, null])),
+                    Err(e) => Ok(json!([null, {"value": e, "isError": true}])),
+                }
+            }
             "reload" => {
                 let id = runtime.active_tab().map(|t| t.id).unwrap_or(0);
                 runtime.reload_tab_driver(id).map(|_| Value::Null)

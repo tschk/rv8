@@ -2,16 +2,20 @@
 
 use log::{debug, info};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::mpsc::{self, Sender};
+use std::sync::{Arc, Mutex as StdMutex};
 use tokio::sync::{Mutex, RwLock};
 
 use super::{BrowserConfig, ProcessManager, Tab, TabId};
 use crate::compositor::Compositor;
 use crate::extensions::ExtensionRuntime;
 use crate::ipc::{BrowserMessage, ContentScriptInjection};
+use crate::js::JsValue;
 use crate::networking::NetworkManager;
 use crate::optimizations::MemoryOptimizer;
 use crate::storage::StorageManager;
+
+type ScriptCallbackMap = Arc<StdMutex<HashMap<u64, Sender<Result<JsValue, String>>>>>;
 
 /// Operations requested by the extension runtime for the browser to perform on tabs.
 #[derive(Debug)]
@@ -20,6 +24,7 @@ pub enum BrowserTabOp {
     Close { ids: Vec<u64> },
     Update { id: u64, props: serde_json::Value },
     Reload { id: u64 },
+    ExecuteScript { id: u64, script: String, callback_id: u64 },
 }
 
 /// Tab driver that sends extension tab operations to the Browser event loop.
@@ -27,11 +32,22 @@ pub enum BrowserTabOp {
 pub struct BrowserTabDriver {
     next_tab_id: Arc<std::sync::atomic::AtomicU64>,
     tx: tokio::sync::mpsc::Sender<BrowserTabOp>,
+    next_script_callback_id: Arc<std::sync::atomic::AtomicU64>,
+    script_callbacks: ScriptCallbackMap,
 }
 
 impl BrowserTabDriver {
-    pub fn new(next_tab_id: Arc<std::sync::atomic::AtomicU64>, tx: tokio::sync::mpsc::Sender<BrowserTabOp>) -> Self {
-        Self { next_tab_id, tx }
+    pub fn new(
+        next_tab_id: Arc<std::sync::atomic::AtomicU64>,
+        tx: tokio::sync::mpsc::Sender<BrowserTabOp>,
+        script_callbacks: ScriptCallbackMap,
+    ) -> Self {
+        Self {
+            next_tab_id,
+            tx,
+            next_script_callback_id: Arc::new(std::sync::atomic::AtomicU64::new(1)),
+            script_callbacks,
+        }
     }
 }
 
@@ -52,6 +68,24 @@ impl crate::extensions::runtime::TabDriver for BrowserTabDriver {
 
     fn reload_tab(&self, id: u64) -> Result<(), String> {
         self.tx.try_send(BrowserTabOp::Reload { id }).map_err(|e| e.to_string())
+    }
+
+    fn execute_script(&self, tab_id: u64, script: &str) -> Result<serde_json::Value, String> {
+        let callback_id = self.next_script_callback_id.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let (tx, rx) = mpsc::channel::<Result<JsValue, String>>();
+        {
+            let mut callbacks = self.script_callbacks.lock().unwrap();
+            callbacks.insert(callback_id, tx);
+        }
+        self.tx
+            .try_send(BrowserTabOp::ExecuteScript {
+                id: tab_id,
+                script: script.to_string(),
+                callback_id,
+            })
+            .map_err(|e| e.to_string())?;
+        let result = rx.recv().map_err(|e| e.to_string())?;
+        result.map(|v| v.to_json())
     }
 }
 
@@ -94,6 +128,8 @@ pub struct Browser {
     browser_events: tokio::sync::mpsc::UnboundedReceiver<BrowserMessage>,
     /// Extension tab operation receiver
     tab_op_rx: tokio::sync::mpsc::Receiver<BrowserTabOp>,
+    /// Pending script execution callbacks keyed by callback id.
+    script_callbacks: ScriptCallbackMap,
 }
 
 impl Browser {
@@ -125,7 +161,12 @@ impl Browser {
 
         let (tab_op_tx, tab_op_rx) = tokio::sync::mpsc::channel(64);
         let next_tab_id = Arc::new(std::sync::atomic::AtomicU64::new(1));
-        let tab_driver = Arc::new(BrowserTabDriver::new(next_tab_id.clone(), tab_op_tx));
+        let script_callbacks: ScriptCallbackMap = Arc::new(StdMutex::new(HashMap::new()));
+        let tab_driver = Arc::new(BrowserTabDriver::new(
+            next_tab_id.clone(),
+            tab_op_tx,
+            script_callbacks.clone(),
+        ));
         extension_runtime.set_tab_driver(tab_driver);
 
         // Initialize process manager
@@ -168,6 +209,7 @@ impl Browser {
             shutdown: shutdown_tx,
             browser_events: browser_event_rx,
             tab_op_rx,
+            script_callbacks,
         })
     }
 
@@ -209,6 +251,15 @@ impl Browser {
                 }
                 drop(tabs);
                 // ponytail: mark crashed but don't auto-restart yet
+            }
+            BrowserMessage::ScriptResult {
+                callback_id,
+                result,
+                ..
+            } => {
+                if let Some(sender) = self.script_callbacks.lock().unwrap().remove(&callback_id) {
+                    let _ = sender.send(result);
+                }
             }
             other => {
                 debug!("Browser message: {:?}", other);
@@ -413,6 +464,17 @@ impl Browser {
             }
             BrowserTabOp::Reload { id } => {
                 let _ = self.reload_tab(TabId(id)).await;
+            }
+            BrowserTabOp::ExecuteScript {
+                id,
+                script,
+                callback_id,
+            } => {
+                let tabs = self.tabs.read().await;
+                if let Some(tab) = tabs.get(&TabId(id)) {
+                    let tab = tab.lock().await;
+                    let _ = tab.execute_script(&script, callback_id);
+                }
             }
         }
     }

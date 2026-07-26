@@ -206,6 +206,11 @@ impl Tab {
         self.renderer_client.send_inject_content_scripts(scripts)
     }
 
+    /// Execute JavaScript in the renderer and receive the result via ScriptResult.
+    pub fn execute_script(&self, script: &str, callback_id: u64) -> Result<(), String> {
+        self.renderer_client.send_execute_script(script, callback_id)
+    }
+
     // Getters
     pub fn id(&self) -> TabId {
         self.id

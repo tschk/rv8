@@ -142,6 +142,15 @@ impl RendererClient {
             .send(RendererMessage::InjectContentScripts { scripts })
             .map_err(|e| e.to_string())
     }
+
+    pub fn send_execute_script(&self, script: &str, callback_id: u64) -> Result<(), String> {
+        self.tx
+            .send(RendererMessage::ExecuteScript {
+                script: script.to_string(),
+                callback_id,
+            })
+            .map_err(|e| e.to_string())
+    }
 }
 
 /// IPC Server for managing channels to child processes
