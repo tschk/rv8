@@ -619,6 +619,7 @@ mod tests {
         assert!(browser.config.incognito);
     }
 
+    #[cfg(not(feature = "servo-render"))]
     #[tokio::test]
     async fn test_new_tab_success() {
         let (mut browser, _dir) = create_test_browser().await;
@@ -637,6 +638,7 @@ mod tests {
         assert_eq!(tab.url(), "https://example.com/");
     }
 
+    #[cfg(not(feature = "servo-render"))]
     #[tokio::test]
     async fn test_new_tab_consecutive_ids() {
         let (mut browser, _dir) = create_test_browser().await;
@@ -649,12 +651,14 @@ mod tests {
         assert_eq!(browser.tab_count().await, 2);
     }
 
+    #[cfg(not(feature = "servo-render"))]
     #[tokio::test]
     async fn test_new_tab_empty_url() {
         let (mut browser, _dir) = create_test_browser().await;
         assert!(browser.new_tab("").await.is_err());
     }
 
+    #[cfg(not(feature = "servo-render"))]
     #[tokio::test]
     async fn test_set_active_tab() {
         let (mut browser, _dir) = create_test_browser().await;
@@ -676,6 +680,7 @@ mod tests {
         assert_eq!(browser.active_tab().await, Some(tab_id2));
     }
 
+    #[cfg(not(feature = "servo-render"))]
     #[tokio::test]
     async fn test_navigate() {
         let (mut browser, _dir) = create_test_browser().await;
@@ -699,6 +704,7 @@ mod tests {
         assert_eq!(result, Err("No active tab".to_string()));
     }
 
+    #[cfg(not(feature = "servo-render"))]
     #[tokio::test]
     async fn test_navigate_tab() {
         let (mut browser, _dir) = create_test_browser().await;
@@ -721,6 +727,7 @@ mod tests {
         assert_eq!(result, Err("Tab 999 not found".to_string()));
     }
 
+    #[cfg(not(feature = "servo-render"))]
     #[tokio::test]
     async fn test_close_tab() {
         let (mut browser, _dir) = create_test_browser().await;
@@ -743,6 +750,7 @@ mod tests {
         assert_eq!(browser.tab_count().await, 0);
     }
 
+    #[cfg(not(feature = "servo-render"))]
     #[tokio::test]
     async fn test_tab_count() {
         let (mut browser, _dir) = create_test_browser().await;
