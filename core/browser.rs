@@ -25,6 +25,11 @@ pub enum BrowserTabOp {
     Update { id: u64, props: serde_json::Value },
     Reload { id: u64 },
     ExecuteScript { id: u64, script: String, callback_id: u64 },
+    InsertCss {
+        id: u64,
+        extension_id: String,
+        css: String,
+    },
 }
 
 /// Tab driver that sends extension tab operations to the Browser event loop.
@@ -68,6 +73,16 @@ impl crate::extensions::runtime::TabDriver for BrowserTabDriver {
 
     fn reload_tab(&self, id: u64) -> Result<(), String> {
         self.tx.try_send(BrowserTabOp::Reload { id }).map_err(|e| e.to_string())
+    }
+
+    fn insert_css(&self, tab_id: u64, extension_id: &str, css: &str) -> Result<(), String> {
+        self.tx
+            .try_send(BrowserTabOp::InsertCss {
+                id: tab_id,
+                extension_id: extension_id.to_string(),
+                css: css.to_string(),
+            })
+            .map_err(|e| e.to_string())
     }
 
     fn execute_script(&self, tab_id: u64, script: &str) -> Result<serde_json::Value, String> {
@@ -474,6 +489,25 @@ impl Browser {
                 if let Some(tab) = tabs.get(&TabId(id)) {
                     let tab = tab.lock().await;
                     let _ = tab.execute_script(&script, callback_id);
+                }
+            }
+            BrowserTabOp::InsertCss {
+                id,
+                extension_id,
+                css,
+            } => {
+                let tabs = self.tabs.read().await;
+                if let Some(tab) = tabs.get(&TabId(id)) {
+                    let tab = tab.lock().await;
+                    let injection = ContentScriptInjection {
+                        extension_id,
+                        js: Vec::new(),
+                        css: vec![css],
+                        run_at: "document_idle".to_string(),
+                        all_frames: false,
+                        match_about_blank: false,
+                    };
+                    let _ = tab.inject_content_scripts(vec![injection]);
                 }
             }
         }

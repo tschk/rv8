@@ -1081,7 +1081,28 @@ fn scripting(runtime: &ExtensionRuntime, req: &ApiRequest) -> ApiResponse {
             let result = runtime.execute_script_tab_driver(tab_id, &code)?;
             Ok(json!([{"result": result}]))
         }
-        "insertCSS" | "removeCSS" => Err(format!("scripting.{} requires a JS bridge", req.method)),
+        "insertCSS" => {
+            let injection = req
+                .args
+                .first()
+                .and_then(|v| v.as_object())
+                .ok_or("scripting.insertCSS requires an injection object")?;
+            let target = injection
+                .get("target")
+                .and_then(|v| v.as_object())
+                .ok_or("scripting.insertCSS requires a target")?;
+            let tab_id = target
+                .get("tabId")
+                .and_then(|v| v.as_u64())
+                .ok_or("scripting.insertCSS requires target.tabId")?;
+            let css = injection
+                .get("css")
+                .and_then(|v| v.as_str())
+                .ok_or("scripting.insertCSS requires css")?;
+            runtime.insert_css_tab_driver(tab_id, &req.extension_id.0, css)?;
+            Ok(Value::Null)
+        }
+        "removeCSS" => Err("scripting.removeCSS requires a JS bridge".into()),
         "registerContentScripts" => {
             let scripts = req.args.first().and_then(|v| v.as_array()).cloned().unwrap_or_default();
             let mut map = runtime.registered_content_scripts();

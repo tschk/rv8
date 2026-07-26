@@ -102,6 +102,8 @@ pub trait TabDriver: Send + Sync {
     fn update_tab(&self, id: u64, props: serde_json::Value) -> Result<(), String>;
     /// Reload a tab.
     fn reload_tab(&self, id: u64) -> Result<(), String>;
+    /// Insert CSS into the given tab.
+    fn insert_css(&self, tab_id: u64, extension_id: &str, css: &str) -> Result<(), String>;
     /// Execute a script in the given tab and block until the result is returned.
     fn execute_script(&self, tab_id: u64, script: &str) -> Result<serde_json::Value, String>;
 }
@@ -694,6 +696,14 @@ impl ExtensionRuntime {
             .as_ref()
             .ok_or("Tab operations require a browser driver".to_string())?
             .reload_tab(id)
+    }
+
+    pub fn insert_css_tab_driver(&self, id: u64, extension_id: &str, css: &str) -> Result<(), String> {
+        self.tab_driver
+            .lock()
+            .as_ref()
+            .ok_or("Tab operations require a browser driver".to_string())?
+            .insert_css(id, extension_id, css)
     }
 
     pub fn execute_script_tab_driver(&self, id: u64, script: &str) -> Result<serde_json::Value, String> {
