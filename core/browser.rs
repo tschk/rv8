@@ -253,8 +253,10 @@ impl Browser {
                 if let Some(tab) = tabs.get(&tab_id) {
                     let tab = tab.lock().await;
                     let url = self.extension_runtime.tab(tab_id.0).map(|t| t.url).unwrap_or_default();
-                    let injections = self.build_content_script_injections(&url, "document_idle");
-                    let _ = tab.inject_content_scripts(injections);
+                    let end_injections = self.build_content_script_injections(&url, "document_end");
+                    let _ = tab.inject_content_scripts(end_injections);
+                    let idle_injections = self.build_content_script_injections(&url, "document_idle");
+                    let _ = tab.inject_content_scripts(idle_injections);
                 }
             }
             BrowserMessage::RendererCrashed { tab_id } => {
