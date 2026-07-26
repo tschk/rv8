@@ -418,12 +418,9 @@ fn filter_tabs(tabs: Vec<ExtensionTab>, query: Option<&Map<String, Value>>) -> V
 fn windows(runtime: &ExtensionRuntime, req: &ApiRequest) -> ApiResponse {
     match req.method.as_str() {
         "get" | "getCurrent" | "getLastFocused" | "getAll" => Ok(current_window(runtime)),
-        "create" => {
-            // Single-window adapter: return a fresh synthetic window.
-            let _opts = req.options(0).cloned().unwrap_or_default();
-            Ok(current_window(runtime))
+        "create" | "update" | "remove" => {
+            Err(format!("windows.{} requires a UI shell", req.method))
         }
-        "update" | "remove" => Ok(Value::Null),
         _ => Err(format!("windows.{} not implemented", req.method)),
     }
 }
@@ -486,7 +483,7 @@ fn action(runtime: &ExtensionRuntime, req: &ApiRequest) -> ApiResponse {
         "getTitle" => Ok(get_action_field(runtime, ext_id, "title")),
         "setPopup" => update_action(runtime, ext_id, "popup", details),
         "getPopup" => Ok(get_action_field(runtime, ext_id, "popup")),
-        "setIcon" => Ok(Value::Null),
+        "setIcon" => update_action(runtime, ext_id, "icon", details),
         "setBadgeText" => update_action(runtime, ext_id, "badgeText", details),
         "getBadgeText" => Ok(get_action_field(runtime, ext_id, "badgeText")),
         "setBadgeBackgroundColor" => update_action(runtime, ext_id, "badgeBackgroundColor", details),
@@ -497,7 +494,7 @@ fn action(runtime: &ExtensionRuntime, req: &ApiRequest) -> ApiResponse {
             let enabled = req.method == "enable";
             update_action(runtime, ext_id, "enabled", Some(json!(enabled)))
         }
-        "openPopup" => Ok(Value::Null),
+        "openPopup" => Err("action.openPopup requires a UI shell".into()),
         "isEnabled" => Ok(json!(get_action_field(runtime, ext_id, "enabled").as_bool().unwrap_or(true))),
         "onClicked" => event_dispatch(runtime, req),
         _ => Err(format!("action.{} not implemented", req.method)),
@@ -934,7 +931,7 @@ fn downloads(runtime: &ExtensionRuntime, req: &ApiRequest) -> ApiResponse {
             Ok(Value::Null)
         }),
         "show" | "showDefaultFolder" | "open" | "getFileIcon" => Err(format!("downloads.{} requires a UI shell", req.method)),
-        "setShelfEnabled" => Ok(Value::Null),
+        "setShelfEnabled" => Err("downloads.setShelfEnabled requires a UI shell".into()),
         _ => Err(format!("downloads.{} is not supported", req.method)),
     }
 }
@@ -1038,7 +1035,7 @@ fn context_menus(runtime: &ExtensionRuntime, req: &ApiRequest) -> ApiResponse {
             runtime.context_menu_items().clear();
             Ok(Value::Null)
         }
-        "refresh" => Ok(Value::Null),
+        "refresh" => Err("contextMenus.refresh requires a UI shell".into()),
         "onClicked" | "onShown" | "onHidden" => event_dispatch(runtime, req),
         _ => Err(format!("contextMenus.{} is not supported", req.method)),
     }
@@ -1526,7 +1523,11 @@ fn devtools(runtime: &ExtensionRuntime, req: &ApiRequest) -> ApiResponse {
     match rest {
         "inspectedWindow" => match req.method.as_str() {
             "eval" => Err("devtools.inspectedWindow.eval requires a JS bridge".into()),
-            "reload" | "getResources" => Ok(Value::Null),
+            "reload" => {
+                let id = runtime.active_tab().map(|t| t.id).unwrap_or(0);
+                runtime.reload_tab_driver(id).map(|_| Value::Null)
+            }
+            "getResources" => Err("devtools.inspectedWindow.getResources requires a JS bridge".into()),
             _ => Err(format!("devtools.inspectedWindow.{} is not supported", req.method)),
         },
         "network" => match req.method.as_str() {
@@ -1535,7 +1536,7 @@ fn devtools(runtime: &ExtensionRuntime, req: &ApiRequest) -> ApiResponse {
             _ => Err(format!("devtools.network.{} is not supported", req.method)),
         },
         "panels" => match req.method.as_str() {
-            "create" | "elements" | "openResource" => Ok(Value::Null),
+            "create" | "elements" | "openResource" => Err(format!("devtools.panels.{} requires a UI shell", req.method)),
             "themeName" => Ok(json!("dark")),
             "onThemeChanged" | "onSearch" | "onSelectionChanged" => event_dispatch(runtime, req),
             _ => Err(format!("devtools.panels.{} is not supported", req.method)),
