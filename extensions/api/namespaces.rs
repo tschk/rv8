@@ -391,13 +391,33 @@ fn filter_tabs(tabs: Vec<ExtensionTab>, query: Option<&Map<String, Value>>) -> V
                     return false;
                 }
             }
-            if let Some(current_window) = query.get("currentWindow").and_then(|v| v.as_bool()) {
-                if current_window && !t.active {
+            if let Some(highlighted) = query.get("highlighted").and_then(|v| v.as_bool()) {
+                if t.highlighted != highlighted {
+                    return false;
+                }
+            }
+            if let Some(window_id) = query.get("windowId").and_then(|v| v.as_u64()) {
+                if t.window_id != window_id {
+                    return false;
+                }
+            }
+            if let Some(index) = query.get("index").and_then(|v| v.as_u64()) {
+                if t.index != index as u32 {
+                    return false;
+                }
+            }
+            if let Some(title) = query.get("title").and_then(|v| v.as_str()) {
+                if !t.title.contains(title) {
                     return false;
                 }
             }
             if let Some(url) = query.get("url").and_then(|v| v.as_str()) {
                 if !t.url.contains(url) {
+                    return false;
+                }
+            }
+            if let Some(status) = query.get("status").and_then(|v| v.as_str()) {
+                if t.status.as_deref() != Some(status) {
                     return false;
                 }
             }
