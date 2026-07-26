@@ -11,6 +11,7 @@
 use log::{debug, info, warn};
 #[cfg(not(feature = "servo-render"))]
 use parking_lot::RwLock;
+#[cfg(any(not(feature = "servo-render"), feature = "rv8-v8"))]
 use std::sync::Arc;
 #[cfg(feature = "rv8-v8")]
 use tokio::sync::Mutex;
@@ -153,6 +154,7 @@ impl ServoEmbedder {
                 indexeddb,
                 websocket_manager,
             ));
+            #[allow(clippy::arc_with_non_send_sync)]
             Arc::new(Mutex::new(js_engine))
         };
 
@@ -270,14 +272,18 @@ impl ServoEmbedder {
         if let Some(ref mut servo) = self.servo {
             return servo.evaluate_script_sync(script);
         }
+
         #[cfg(feature = "rv8-v8")]
         {
             let mut engine = self.js_engine.lock().await;
-            return engine.execute_to_string(script);
+            engine.execute_to_string(script)
         }
-        #[cfg(not(any(feature = "servo-render", feature = "rv8-v8")))]
-        let _ = script;
-        Err("JavaScript backend not enabled".to_string())
+
+        #[cfg(not(feature = "rv8-v8"))]
+        {
+            let _ = script;
+            Err("JavaScript backend not enabled".to_string())
+        }
     }
 
     /// Inject content scripts: first CSS as <style> elements, then each JS source.
@@ -307,14 +313,18 @@ impl ServoEmbedder {
         if let Some(ref mut servo) = self.servo {
             return servo.evaluate_script_value_sync(script);
         }
+
         #[cfg(feature = "rv8-v8")]
         {
             let mut engine = self.js_engine.lock().await;
-            return engine.execute(script);
+            engine.execute(script)
         }
-        #[cfg(not(any(feature = "servo-render", feature = "rv8-v8")))]
-        let _ = script;
-        Err("JavaScript backend not enabled".to_string())
+
+        #[cfg(not(feature = "rv8-v8"))]
+        {
+            let _ = script;
+            Err("JavaScript backend not enabled".to_string())
+        }
     }
 
     /// Send a Chrome DevTools Protocol JSON-RPC message.
@@ -322,11 +332,14 @@ impl ServoEmbedder {
         #[cfg(feature = "rv8-v8")]
         {
             let mut engine = self.js_engine.lock().await;
-            return Ok(engine.cdp_send(json));
+            Ok(engine.cdp_send(json))
         }
+
         #[cfg(not(feature = "rv8-v8"))]
-        let _ = json;
-        Err("JavaScript backend not enabled".to_string())
+        {
+            let _ = json;
+            Err("JavaScript backend not enabled".to_string())
+        }
     }
 
     /// Get the current render frame

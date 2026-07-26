@@ -22,6 +22,7 @@ use glow::{Context as GlowContext, NativeFramebuffer};
 use io_surface::IOSurface;
 
 #[cfg(all(target_os = "macos", feature = "servo-render"))]
+#[allow(deprecated)]
 struct SendableIOSurface(IOSurface);
 
 #[cfg(all(target_os = "macos", feature = "servo-render"))]
@@ -171,6 +172,7 @@ impl NativeSurfaceRenderingContext {
             .and_then(|info| info.framebuffer_object)
     }
 
+    #[allow(deprecated)]
     fn current_surface(&self) -> Option<IOSurface> {
         use objc2_core_foundation::CFRetained;
         let mut context = self.context.borrow_mut();
@@ -513,6 +515,7 @@ impl ServoRenderer {
     }
 
     #[cfg(all(target_os = "macos", feature = "servo-render"))]
+    #[allow(deprecated)]
     pub fn current_surface(&self) -> Option<IOSurface> {
         self.native_surface.as_ref()?.current_surface()
     }
@@ -1169,6 +1172,7 @@ impl ServoHost {
     }
 
     #[cfg(target_os = "macos")]
+    #[allow(deprecated)]
     pub fn current_surface(&self) -> Result<Option<IOSurface>, String> {
         let (tx, rx) = mpsc::channel();
         self.tx
@@ -1194,8 +1198,7 @@ fn script_needs_page_dom_bridge(script: &str) -> bool {
         "location.href",
         "window.location.href",
     ]
-    .iter()
-    .any(|probe| script == *probe)
+    .contains(&script)
 }
 
 fn build_click_script(x: f32, y: f32) -> String {

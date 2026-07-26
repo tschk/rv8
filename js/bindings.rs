@@ -31,6 +31,7 @@ static NEXT_OBSERVER_ID: AtomicU64 = AtomicU64::new(1);
 static NEXT_CANVAS_CTX_ID: AtomicU64 = AtomicU64::new(1);
 static NEXT_WORKER_ID: AtomicU64 = AtomicU64::new(1);
 
+#[allow(dead_code)]
 struct MutationObserverState {
     id: u64,
     callback: v8::Global<v8::Function>,
@@ -44,12 +45,14 @@ struct MutationRecord {
     record_type: String,
 }
 
+#[allow(dead_code)]
 struct IntersectionObserverState {
     id: u64,
     callback: v8::Global<v8::Function>,
     targets: Vec<NodeId>,
 }
 
+#[allow(dead_code)]
 struct Canvas2DState {
     id: u64,
     node_id: NodeId,
@@ -59,6 +62,7 @@ struct Canvas2DState {
 }
 
 #[derive(Clone)]
+#[allow(dead_code)]
 enum CanvasPathOp {
     MoveTo(f64, f64),
     LineTo(f64, f64),
@@ -75,6 +79,7 @@ pub struct V8ContextData {
     pub indexeddb: Arc<RwLock<IndexedDb>>,
     pub websocket_manager: Arc<RwLock<WebSocketManager>>,
     pub timer_callbacks: RwLock<HashMap<u64, v8::Global<v8::Function>>>,
+    #[allow(clippy::type_complexity)]
     pub event_listeners: RwLock<HashMap<(NodeId, String), Vec<v8::Global<v8::Function>>>>,
     mutation_observers: RwLock<HashMap<u64, MutationObserverState>>,
     intersection_observers: RwLock<HashMap<u64, IntersectionObserverState>>,
@@ -1324,9 +1329,7 @@ fn idb_transaction_callback(
     args: v8::FunctionCallbackArguments,
     mut rv: v8::ReturnValue,
 ) {
-    let Ok(db_obj) = v8::Local::<v8::Object>::try_from(args.this()) else {
-        return;
-    };
+    let db_obj = args.this();
     let db_name = get_object_string_property(scope, db_obj, IDB_DB_NAME_KEY).unwrap_or_default();
     let store_name = value_to_string(scope, args.get(0)).unwrap_or_default();
 
@@ -1345,9 +1348,7 @@ fn idb_object_store_callback(
     args: v8::FunctionCallbackArguments,
     mut rv: v8::ReturnValue,
 ) {
-    let Ok(tx) = v8::Local::<v8::Object>::try_from(args.this()) else {
-        return;
-    };
+    let tx = args.this();
     let (db_name, store_name) = idb_store_names(scope, tx);
     let store = v8::Object::new(scope);
     set_object_string_property(scope, store, IDB_DB_NAME_KEY, &db_name);
@@ -1368,9 +1369,7 @@ fn idb_create_object_store_callback(
     args: v8::FunctionCallbackArguments,
     mut rv: v8::ReturnValue,
 ) {
-    let Ok(db_obj) = v8::Local::<v8::Object>::try_from(args.this()) else {
-        return;
-    };
+    let db_obj = args.this();
     let db_name = get_object_string_property(scope, db_obj, IDB_DB_NAME_KEY).unwrap_or_default();
     let store_name = value_to_string(scope, args.get(0)).unwrap_or_default();
     let auto_increment = args.get(1).is_object() || args.get(1).is_boolean();
@@ -1404,8 +1403,6 @@ fn js_value_to_json(scope: &mut v8::HandleScope, value: v8::Local<v8::Value>) ->
             serde_json::Number::from_f64(value.number_value(scope).unwrap_or(0.0))
                 .unwrap_or_else(|| serde_json::Number::from(0)),
         )
-    } else if value.is_string() {
-        JsonValue::String(value_to_string(scope, value).unwrap_or_default())
     } else {
         JsonValue::String(value_to_string(scope, value).unwrap_or_default())
     }
