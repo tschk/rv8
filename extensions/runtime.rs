@@ -17,6 +17,8 @@ use std::sync::{Arc, Weak};
 use super::api::{ApiRequest, ApiResponse};
 #[cfg(feature = "rv8-v8")]
 use super::js_bridge::BackgroundScriptRuntime;
+#[cfg(all(feature = "servo-render", not(feature = "rv8-v8")))]
+use super::servo_js_bridge::BackgroundScriptRuntime;
 use super::manifest::{Background, ExtensionManifest};
 use super::matchers::{glob_match, url_matches_pattern};
 use super::permissions::{Permission, PermissionSet};
@@ -165,7 +167,7 @@ pub struct ExtensionRuntime {
     /// Weak reference to the `Arc<ExtensionRuntime>` that owns this instance.
     self_ref: Mutex<Option<Weak<ExtensionRuntime>>>,
     /// Background script V8 engine handles, keyed by extension id.
-    #[cfg(feature = "rv8-v8")]
+    #[cfg(any(feature = "rv8-v8", feature = "servo-render"))]
     background_engines: Mutex<HashMap<ExtensionId, BackgroundScriptRuntime>>,
 }
 
@@ -233,7 +235,7 @@ impl ExtensionRuntime {
             registered_content_scripts: Mutex::new(HashMap::new()),
             registered_user_scripts: Mutex::new(HashMap::new()),
             self_ref: Mutex::new(None),
-            #[cfg(feature = "rv8-v8")]
+            #[cfg(any(feature = "rv8-v8", feature = "servo-render"))]
             background_engines: Mutex::new(HashMap::new()),
         }
     }
@@ -248,14 +250,14 @@ impl ExtensionRuntime {
             if path.is_dir() {
                 match self.load_from_dir(&path) {
                     Ok(id) => {
-                        #[cfg(feature = "rv8-v8")]
+                        #[cfg(any(feature = "rv8-v8", feature = "servo-render"))]
                         {
                             let scripts = self.background_script_sources(&id);
                             if !scripts.is_empty() {
                                 self.start_background_engine(id, scripts);
                             }
                         }
-                        #[cfg(not(feature = "rv8-v8"))]
+                        #[cfg(not(any(feature = "rv8-v8", feature = "servo-render")))]
                         let _ = id;
                         count += 1;
                     }
@@ -275,7 +277,7 @@ impl ExtensionRuntime {
     }
 
     /// Read the background / service_worker script sources for `id`.
-    #[cfg(feature = "rv8-v8")]
+    #[cfg(any(feature = "rv8-v8", feature = "servo-render"))]
     pub fn background_script_sources(&self, id: &ExtensionId) -> Vec<String> {
         let exts = self.extensions.lock();
         let Some(ext) = exts.get(id) else { return Vec::new(); };
@@ -291,7 +293,7 @@ impl ExtensionRuntime {
     }
 
     /// Start a V8 background script engine for `extension_id`.
-    #[cfg(feature = "rv8-v8")]
+    #[cfg(any(feature = "rv8-v8", feature = "servo-render"))]
     pub fn start_background_engine(&self, extension_id: ExtensionId, scripts: Vec<String>) {
         let runtime = match self.self_ref.lock().as_ref().and_then(|w| w.upgrade()) {
             Some(r) => r,

@@ -8,6 +8,8 @@
 pub mod api;
 #[cfg(feature = "rv8-v8")]
 pub mod js_bridge;
+#[cfg(all(feature = "servo-render", not(feature = "rv8-v8")))]
+pub mod servo_js_bridge;
 pub mod manifest;
 pub mod matchers;
 pub mod permissions;

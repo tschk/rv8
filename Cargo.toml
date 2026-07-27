@@ -126,6 +126,7 @@ servo-render = [
     "dep:gleam",
     "dep:glow",
     "dep:euclid",
+    "dep:rusty_v8",
 ]
 rv8-v8 = ["dep:rusty_v8"]
 chrome = ["dep:gpui", "dep:crepuscularity-gpui", "crepuscularity-gpui/symbols"]
