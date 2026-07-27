@@ -10,7 +10,7 @@ use log::{info, warn};
 use rusty_v8 as v8;
 use serde_json::{json, Value};
 use std::sync::mpsc::{channel, Sender};
-use std::sync::{Once, Weak};
+use std::sync::Weak;
 use std::thread::{self, JoinHandle};
 
 use crate::extensions::api::ApiRequest;
@@ -167,18 +167,9 @@ struct BridgeState {
     listeners: Vec<v8::Global<v8::Function>>,
 }
 
-fn init_v8() {
-    static V8_INIT: Once = Once::new();
-    V8_INIT.call_once(|| {
-        let platform = v8::new_default_platform(0, false).make_shared();
-        v8::V8::initialize_platform(platform);
-        v8::V8::initialize();
-        info!("V8 background script engine initialized for servo-render");
-    });
-}
-
 fn create_isolate() -> Result<v8::OwnedIsolate, String> {
-    init_v8();
+    js::ensure_v8();
+    info!("V8 background script engine initialized for servo-render");
     Ok(v8::Isolate::new(v8::CreateParams::default()))
 }
 

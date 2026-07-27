@@ -7256,6 +7256,7 @@ dependencies = [
  "image",
  "io-surface",
  "ipc-channel 0.18.3",
+ "js",
  "keyboard-types",
  "log",
  "nix 0.27.1",

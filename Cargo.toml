@@ -81,6 +81,7 @@ image = { version = "0.25", default-features = false, features = [] }
 
 # Servo layout/CSS/WebRender (rv8-owned engine checkout)
 servo = { path = "third_party/servo/components/servo", default-features = false, features = ["baked-in-resources", "clipboard", "soliloquy_v8"], optional = true }
+js = { path = "third_party/servo/support/js_stub", features = ["v8"], optional = true }
 dpi = { version = "0.1", optional = true }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "std"], optional = true }
 servo-embedder-traits = { path = "third_party/servo/components/shared/embedder", optional = true }
@@ -114,6 +115,7 @@ gpu-compositing = []
 hardware-acceleration = []
 servo-render = [
     "dep:servo",
+    "dep:js",
     "dep:dpi",
     "dep:rustls",
     "dep:servo-embedder-traits",
