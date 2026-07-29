@@ -940,6 +940,40 @@ mod tests {
     }
 
     #[test]
+    fn test_evaluate_script_sync_edge_cases() {
+        let mut renderer = ServoRenderer::new(800, 600).expect("servo renderer");
+
+        // 1. Error before navigation (raw)
+        let res = renderer.evaluate_script_sync("1 + 1");
+        assert!(res.is_err(), "Expected error before navigation");
+        assert_eq!(res.unwrap_err(), "JavaScript evaluation requested before navigation");
+
+        // 2. Error before navigation (DOM bridge)
+        let res = renderer.evaluate_script_sync("document.title");
+        assert!(res.is_err(), "Expected error before navigation");
+        assert_eq!(res.unwrap_err(), "JavaScript evaluation requested before navigation");
+
+        // Navigate to establish context
+        renderer
+            .navigate("data:text/html,<html><body></body></html>")
+            .expect("navigate data page");
+
+        // Ensure navigation settled
+        assert_eq!(
+            renderer.evaluate_script_sync("document.readyState").expect("ready state"),
+            "complete"
+        );
+
+        // 3. Syntax error
+        let res = renderer.evaluate_script_sync("]invalid[");
+        assert!(res.is_err(), "Expected error on invalid syntax");
+
+        // 4. Runtime exception
+        let res = renderer.evaluate_script_sync("throw new Error('test_error')");
+        assert!(res.is_err(), "Expected error on exception");
+    }
+
+    #[test]
     #[ignore = "diagnose google.com rendering"]
     fn diagnose_google() {
         let mut renderer = ServoRenderer::new(1280, 800).expect("servo renderer");
