@@ -10,7 +10,7 @@ use std::fmt;
 use std::sync::{Arc, Mutex};
 
 /// User-facing capabilities that can trigger driver activation.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Capability {
     Bluetooth,
     Wifi,
@@ -405,7 +405,7 @@ impl DriverManager {
             .ids_for_capability(capability)
             .into_iter()
             .next()
-            .ok_or_else(|| DriverError::CapabilityUnavailable(capability.clone()))
+            .ok_or_else(|| DriverError::CapabilityUnavailable(*capability))
     }
 
     pub fn acquire_capability(&mut self, capability: &Capability) -> Result<String, DriverError> {
@@ -535,7 +535,7 @@ impl CapabilityBroker {
         Ok(DriverLease::new(
             Arc::clone(&self.manager),
             driver_id,
-            capability.clone(),
+            *capability,
         ))
     }
 }

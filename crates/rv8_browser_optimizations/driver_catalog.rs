@@ -366,7 +366,7 @@ impl PersistentDriverManager {
                     let source = self.catalog.capability_source(capability)?;
                     let Some(source_uri) = source else {
                         return Err(DriverCatalogError::Driver(
-                            DriverError::CapabilityUnavailable(capability.clone()),
+                            DriverError::CapabilityUnavailable(*capability),
                         ));
                     };
 
@@ -382,7 +382,7 @@ impl PersistentDriverManager {
         Ok(DriverLease::new(
             Arc::clone(&self.manager),
             driver_id,
-            capability.clone(),
+            *capability,
         ))
     }
 
@@ -408,7 +408,7 @@ impl PersistentDriverManager {
                 let source = self.catalog.capability_source(capability)?;
                 let Some(source_uri) = source else {
                     return Err(DriverCatalogError::Driver(
-                        DriverError::CapabilityUnavailable(capability.clone()),
+                        DriverError::CapabilityUnavailable(*capability),
                     ));
                 };
 
