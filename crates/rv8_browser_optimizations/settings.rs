@@ -64,7 +64,7 @@ impl SettingsManager {
         })?;
 
         self.driver_manager
-            .set_capability_enabled(toggle.capability.clone(), enabled)?;
+            .set_capability_enabled(toggle.capability, enabled)?;
         toggle.enabled = enabled;
         Ok(())
     }
