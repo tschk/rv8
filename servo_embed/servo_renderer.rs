@@ -747,6 +747,29 @@ mod tests {
 
     // ponytail: one Servo process init per test binary — Servo opts panic on second ServoBuilder.
     #[test]
+    fn test_servo_host_navigate() {
+        let exe = std::env::current_exe().expect("current exe");
+        if std::env::var("RV8_CHILD_TEST").is_ok() {
+            let host = ServoHost::launch(800, 600).expect("launch servo host");
+            let result = host
+                .navigate("data:text/html,<html><head><title>RV8%20IPC</title></head><body><h1>Hello%20IPC</h1></body></html>")
+                .expect("navigate");
+            assert_eq!(result.title, "RV8 IPC");
+            assert!(result.frame.is_some());
+            std::process::exit(0);
+        } else {
+            let output = std::process::Command::new(exe)
+                .arg("test_servo_host_navigate")
+                .arg("--exact")
+                .env("RV8_CHILD_TEST", "1")
+                .output()
+                .expect("spawn child test");
+            assert!(output.status.success(), "child process failed: {:?}", output);
+            return;
+        }
+    }
+
+    #[test]
     fn servo_v8_linking_smoke() {
         let mut renderer = ServoRenderer::new(800, 600).expect("servo renderer");
         renderer
