@@ -1830,6 +1830,47 @@ mod tests {
     }
 
     #[test]
+    fn test_initialize_context() {
+        crate::js::engine::init_v8();
+        let mut isolate = v8::Isolate::new(v8::CreateParams::default());
+        let scope = &mut v8::HandleScope::new(&mut isolate);
+
+        let data = create_test_context_data();
+        let context = initialize_context(scope, data);
+        let scope = &mut v8::ContextScope::new(scope, context);
+
+        let global = context.global(scope);
+
+        // Verify web APIs are bound
+        let properties = [
+            "console",
+            "setTimeout",
+            "clearTimeout",
+            "setInterval",
+            "clearInterval",
+            "document",
+            "localStorage",
+            "sessionStorage",
+            "indexedDB",
+            "WebSocket",
+            "Worker",
+        ];
+
+        for prop_name in properties {
+            let key = v8::String::new(scope, prop_name).unwrap();
+            let val = global.get(scope, key.into()).unwrap();
+            assert!(!val.is_undefined(), "Property {} should be bound", prop_name);
+        }
+
+        // Verify we can get the context data back
+        let retrieved_data = get_context_data(scope);
+        assert!(retrieved_data.dom_tree.read().get_node(0).is_none());
+
+        // Cleanup
+        let _ = take_context_data(scope);
+    }
+
+    #[test]
     #[should_panic(expected = "V8 context data should be installed")]
     fn test_get_context_data_missing() {
         crate::js::engine::init_v8();
