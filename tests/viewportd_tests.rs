@@ -1,3 +1,5 @@
+#![cfg(feature = "servo-render")]
+#![cfg(feature = "servo-render")]
 use std::io::{Read, Write};
 use std::process::{Command, Stdio};
 use std::time::Duration;
