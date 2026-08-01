@@ -297,3 +297,33 @@ fn base64_decode(input: &str) -> Option<Vec<u8>> {
         Some(out)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_base64_decode() {
+        assert_eq!(base64_decode("aGVsbG8="), Some(b"hello".to_vec()));
+        assert_eq!(base64_decode("YQ=="), Some(b"a".to_vec()));
+        assert_eq!(base64_decode("YWI="), Some(b"ab".to_vec()));
+        assert_eq!(base64_decode("YWJj"), Some(b"abc".to_vec()));
+        assert_eq!(base64_decode(""), None);
+    }
+
+    #[test]
+    fn test_viewport_snapshot_default() {
+        let snap = ViewportSnapshot::default();
+        assert_eq!(snap.url, "");
+        assert_eq!(snap.title, "");
+        assert_eq!(snap.width, 0);
+        assert_eq!(snap.height, 0);
+        assert_eq!(snap.loading, false);
+        assert!(snap.pixels.is_none());
+        assert_eq!(snap.frame_generation, 0);
+        assert!(snap.favicon.is_none());
+        assert!(snap.favicon_mime.is_none());
+        assert_eq!(snap.find_matches, 0);
+        assert_eq!(snap.find_active, 0);
+    }
+}
