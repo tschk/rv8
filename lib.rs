@@ -32,7 +32,11 @@
 //! async fn main() {
 //!     // Renderer sandboxing is not implemented, so the default config is
 //!     // rejected; running unsandboxed has to be requested explicitly.
-//!     let config = BrowserConfig { sandbox: false, ..Default::default() };
+//!     let config = BrowserConfig {
+//!         sandbox: false,
+//!         multi_process: false,
+//!         ..Default::default()
+//!     };
 //!     let mut browser = Browser::new(config).await.expect("Failed to create browser");
 //!     browser.new_tab("https://example.com").await.expect("Navigation failed");
 //!     browser.run().await;
