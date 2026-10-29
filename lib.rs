@@ -8,9 +8,9 @@
 //! RV8 uses a multi-process architecture similar to Chrome:
 //!
 //! - **Browser Process**: UI, profile management, navigation
-//! - **Renderer Processes**: HTML/CSS parsing, layout, painting (sandboxed)
-//! - **GPU Process**: Compositing and hardware acceleration
-//! - **Network Process**: HTTP/HTTPS, caching, cookies
+//! - **Renderer Processes**: HTML/CSS parsing, layout, painting (not sandboxed yet)
+//! - **GPU Process**: not implemented (`--type=gpu` exits with an error)
+//! - **Network Process**: not implemented (`--type=network` exits with an error)
 //!
 //! ## Modules
 //!
@@ -30,7 +30,10 @@
 //!
 //! #[tokio::main]
 //! async fn main() {
-//!     let mut browser = Browser::new(BrowserConfig::default()).await.expect("Failed to create browser");
+//!     // Renderer sandboxing is not implemented, so the default config is
+//!     // rejected; running unsandboxed has to be requested explicitly.
+//!     let config = BrowserConfig { sandbox: false, ..Default::default() };
+//!     let mut browser = Browser::new(config).await.expect("Failed to create browser");
 //!     browser.new_tab("https://example.com").await.expect("Navigation failed");
 //!     browser.run().await;
 //! }
