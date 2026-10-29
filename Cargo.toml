@@ -131,7 +131,7 @@ servo-render = [
     "dep:rusty_v8",
 ]
 rv8-v8 = ["dep:rusty_v8"]
-chrome = ["dep:gpui", "dep:crepuscularity-gpui", "crepuscularity-gpui/symbols"]
+chrome = ["dep:gpui", "dep:crepuscularity-gpui"]
 
 [patch.crates-io]
 serde_fmt = { path = "patches/serde_fmt" }
