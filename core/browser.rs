@@ -150,6 +150,13 @@ pub struct Browser {
 impl Browser {
     /// Create a new browser instance
     pub async fn new(config: BrowserConfig) -> Result<Self, String> {
+        if config.sandbox {
+            return Err(
+                "renderer sandbox not implemented: set BrowserConfig::sandbox = false to \
+                 run renderers unsandboxed"
+                    .to_string(),
+            );
+        }
         info!("Initializing RV8 browser...");
 
         // Initialize extension runtime before config is moved.
@@ -651,6 +658,7 @@ mod tests {
         config.data_dirs.terminal_state_dir = dir.path().join("terminal");
         config.incognito = true;
         config.multi_process = false;
+        config.sandbox = false;
 
         let browser = Browser::new(config).await.unwrap();
         (browser, dir)
@@ -671,6 +679,7 @@ mod tests {
         };
         config.data_dirs = data_dirs;
         config.user_data_dir = temp_dir.path().join("profile");
+        config.sandbox = false;
 
         let browser = Browser::new(config)
             .await
@@ -684,6 +693,22 @@ mod tests {
                 .load(std::sync::atomic::Ordering::SeqCst),
             1
         );
+    }
+
+    #[tokio::test]
+    async fn test_browser_rejects_unimplemented_sandbox() {
+        let temp_dir = tempdir().expect("Failed to create temp dir");
+        let mut config = BrowserConfig::incognito();
+        config.user_data_dir = temp_dir.path().join("profile");
+        config.data_dirs.profile_dir = temp_dir.path().join("profile");
+        config.multi_process = false;
+
+        // The default config asks for a sandbox, so it must fail closed.
+        let error = Browser::new(config)
+            .await
+            .err()
+            .expect("sandboxed renderers are not implemented");
+        assert!(error.contains("sandbox not implemented"), "{error}");
     }
 
     #[tokio::test]
@@ -701,6 +726,7 @@ mod tests {
         };
         config.data_dirs = data_dirs;
         config.user_data_dir = temp_dir.path().join("profile");
+        config.sandbox = false;
 
         let browser = Browser::new(config)
             .await

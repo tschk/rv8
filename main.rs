@@ -1,13 +1,13 @@
 //! RV8 Browser Main Entry Point
 //!
-//! Launches the RV8 browser with multi-process architecture.
+//! Dispatches child process types. The `rv8` binary itself has no display
+//! frontend or JavaScript engine; use `roverite` (`--features chrome`) or
+//! `viewportd` (`--features servo-render`). Process types that are not
+//! implemented exit with an error instead of idling forever.
 
 use log::{error, info, warn};
-use rv8::compositor;
-use rv8::networking;
 use std::env;
 
-use rv8::core::{Browser, BrowserConfig};
 use rv8::ipc::{self, IpcSender, RendererMessage};
 use rv8::renderer;
 
@@ -49,46 +49,18 @@ fn main() {
     run_browser_process(initial_url);
 }
 
-// mod ui;
-
-/// Run the main browser process (UI, coordination)
+/// The default `rv8` binary has no window and no JavaScript engine, so it
+/// refuses to start rather than parking a headless backend thread.
 fn run_browser_process(initial_url: &str) {
-    info!("Starting browser process...");
-
-    let url = initial_url.to_string();
-    // Spawn backend logic in background thread
-    std::thread::spawn(move || {
-        let rt = tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .expect("Failed to create Tokio runtime");
-
-        rt.block_on(async {
-            info!("Backend initialized");
-            let config = BrowserConfig::appliance();
-            match Browser::new(config).await {
-                Ok(mut browser) => {
-                    if let Err(e) = browser.new_tab(&url).await {
-                        error!("Failed to open new tab: {}", e);
-                    }
-                    browser.run().await;
-                }
-                Err(e) => {
-                    error!("Failed to create browser: {}", e);
-                }
-            }
-        });
-    });
-
-    // GPUI integration disabled due to dependency conflict (core-graphics)
-    // ui::run_app(gpui::App::new());
-    info!("GPUI disabled. Browser process running in appliance mode.");
-    std::thread::park();
-
-    info!("Browser process terminated");
+    error!(
+        "rv8 browser process is not implemented: this binary has no display frontend or \
+         JavaScript engine (requested {initial_url}); run roverite (--features chrome) or \
+         viewportd (--features servo-render)"
+    );
+    std::process::exit(1);
 }
 
-/// Run a renderer subprocess (sandboxed)
+/// Run a renderer subprocess (not sandboxed; see `BrowserConfig::sandbox`)
 fn run_renderer_process(args: &[String]) {
     info!("Starting renderer process...");
 
@@ -179,16 +151,7 @@ fn run_gpu_process(args: &[String]) {
         .find(|a| a.starts_with("--channel-id="))
         .map(|a| a.strip_prefix("--channel-id=").unwrap())
         .expect("GPU process requires --channel-id");
-
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("Failed to create Tokio runtime");
-
-    rt.block_on(async {
-        let gpu = compositor::GpuProcess::new(channel_id).await;
-        gpu.run().await;
-    });
+    exit_unimplemented("GPU", channel_id);
 }
 
 /// Run the network process
@@ -200,17 +163,7 @@ fn run_network_process(args: &[String]) {
         .find(|a| a.starts_with("--channel-id="))
         .map(|a| a.strip_prefix("--channel-id=").unwrap())
         .expect("Network process requires --channel-id");
-
-    let rt = tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(4)
-        .enable_all()
-        .build()
-        .expect("Failed to create Tokio runtime");
-
-    rt.block_on(async {
-        let network = networking::NetworkProcess::new(channel_id).await;
-        network.run().await;
-    });
+    exit_unimplemented("Network", channel_id);
 }
 
 /// Run a utility process
@@ -222,9 +175,11 @@ fn run_utility_process(args: &[String]) {
         .find(|a| a.starts_with("--channel-id="))
         .map(|a| a.strip_prefix("--channel-id=").unwrap())
         .expect("Utility process requires --channel-id");
+    exit_unimplemented("Utility", channel_id);
+}
 
-    info!("Utility process running with channel: {}", channel_id);
-
-    // Utility processes handle various tasks like extensions, etc.
-    std::thread::park();
+/// GPU, network and utility processes have no IPC bootstrap or work loop yet.
+fn exit_unimplemented(kind: &str, channel_id: &str) -> ! {
+    error!("{kind} process is not implemented (channel {channel_id})");
+    std::process::exit(1);
 }

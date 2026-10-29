@@ -64,7 +64,10 @@ pub struct BrowserConfig {
     /// Explicit writable browser data directories for immutable deployments.
     pub data_dirs: BrowserDataDirs,
 
-    /// Enable sandboxing for renderer processes
+    /// Request OS sandboxing for renderer processes. Defaults to `true`, but
+    /// renderer sandboxing is not implemented, so `Browser::new` rejects
+    /// `true`: running renderers unsandboxed must be requested explicitly by
+    /// setting this to `false`.
     pub sandbox: bool,
 
     /// User agent override

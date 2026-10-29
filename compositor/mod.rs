@@ -187,27 +187,6 @@ impl Compositor {
     }
 }
 
-/// GPU process (runs in child process)
-pub struct GpuProcess {
-    channel_id: String,
-}
-
-impl GpuProcess {
-    pub async fn new(channel_id: &str) -> Self {
-        info!("GPU process initializing with channel: {}", channel_id);
-        GpuProcess {
-            channel_id: channel_id.to_string(),
-        }
-    }
-
-    pub async fn run(&self) {
-        info!("GPU process running on channel {}", self.channel_id);
-        // ponytail: subprocess IPC bootstrap not wired yet.
-        // See spawn_renderer_process for IpcOneShotServer pattern.
-        std::future::pending::<()>().await;
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

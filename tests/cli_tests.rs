@@ -85,3 +85,54 @@ fn test_utility_process_requires_channel_id() {
         "Expected panic message not found. stdout: {}, stderr: {}", stdout, stderr
     );
 }
+
+/// Runs rv8 and fails the test if it is still running after 10 s, which is
+/// how the old parked/pending process types behaved.
+fn run_with_deadline(args: &[&str]) -> (bool, String) {
+    use std::io::Read;
+    use std::process::Stdio;
+    use std::time::{Duration, Instant};
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_rv8"))
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("Failed to execute process");
+    let started = Instant::now();
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        if started.elapsed() > Duration::from_secs(10) {
+            child.kill().unwrap();
+            panic!("rv8 {args:?} was still running after 10 s");
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    let mut output = String::new();
+    child.stdout.take().unwrap().read_to_string(&mut output).unwrap();
+    child.stderr.take().unwrap().read_to_string(&mut output).unwrap();
+    (status.success(), output)
+}
+
+#[test]
+fn test_default_build_refuses_to_start_without_frontend() {
+    let (success, output) = run_with_deadline(&["https://example.com"]);
+    assert!(!success, "{output}");
+    assert!(output.contains("browser process is not implemented"), "{output}");
+}
+
+#[test]
+fn test_unimplemented_process_types_exit_with_error() {
+    for (kind, message) in [
+        ("gpu", "GPU process is not implemented"),
+        ("network", "Network process is not implemented"),
+        ("utility", "Utility process is not implemented"),
+    ] {
+        let (success, output) =
+            run_with_deadline(&[&format!("--type={kind}"), "--channel-id=test"]);
+        assert!(!success, "{kind}: {output}");
+        assert!(output.contains(message), "{kind}: {output}");
+    }
+}

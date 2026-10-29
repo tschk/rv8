@@ -26,12 +26,6 @@ pub struct ProcessManager {
     /// Active renderer processes (tab_id -> child process)
     renderers: Mutex<HashMap<TabId, ChildProcess>>,
 
-    /// GPU process
-    gpu_process: Mutex<Option<ChildProcess>>,
-
-    /// Network process
-    network_process: Mutex<Option<ChildProcess>>,
-
     /// IPC server for child process communication
     ipc_server: IpcServer,
 
@@ -56,8 +50,6 @@ impl ProcessManager {
         ProcessManager {
             multi_process: true,
             renderers: Mutex::new(HashMap::new()),
-            gpu_process: Mutex::new(None),
-            network_process: Mutex::new(None),
             ipc_server: IpcServer::new(),
             #[cfg(target_os = "linux")]
             core_counter: std::sync::atomic::AtomicUsize::new(0),
@@ -71,8 +63,6 @@ impl ProcessManager {
         ProcessManager {
             multi_process: false,
             renderers: Mutex::new(HashMap::new()),
-            gpu_process: Mutex::new(None),
-            network_process: Mutex::new(None),
             ipc_server: IpcServer::new(),
             #[cfg(target_os = "linux")]
             core_counter: std::sync::atomic::AtomicUsize::new(0),
@@ -284,86 +274,6 @@ impl ProcessManager {
         }
     }
 
-    /// Spawn GPU process (if not already running)
-    pub async fn ensure_gpu_process(&self) -> Result<(), String> {
-        if !self.multi_process {
-            return Ok(());
-        }
-
-        let mut gpu = self.gpu_process.lock().await;
-        if gpu.is_some() {
-            return Ok(());
-        }
-
-        let channel_id = "gpu-process";
-        info!("Spawning GPU process with channel {}", channel_id);
-
-        let (_channel, _rx) = self.ipc_server.create_channel(channel_id)?;
-
-        let exe =
-            std::env::current_exe().map_err(|e| format!("Failed to get current exe: {}", e))?;
-
-        if !channel_id
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
-        {
-            return Err("Invalid channel id".into());
-        }
-
-        let child = Command::new(exe)
-            .arg("--type=gpu")
-            .arg(format!("--channel-id={}", channel_id))
-            .spawn()
-            .map_err(|e| format!("Failed to spawn GPU process: {}", e))?;
-
-        *gpu = Some(ChildProcess {
-            _child: child,
-            channel_id: channel_id.to_string(),
-        });
-
-        Ok(())
-    }
-
-    /// Spawn network process (if not already running)
-    pub async fn ensure_network_process(&self) -> Result<(), String> {
-        if !self.multi_process {
-            return Ok(());
-        }
-
-        let mut network = self.network_process.lock().await;
-        if network.is_some() {
-            return Ok(());
-        }
-
-        let channel_id = "network-process";
-        info!("Spawning network process with channel {}", channel_id);
-
-        let (_channel, _rx) = self.ipc_server.create_channel(channel_id)?;
-
-        let exe =
-            std::env::current_exe().map_err(|e| format!("Failed to get current exe: {}", e))?;
-
-        if !channel_id
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
-        {
-            return Err("Invalid channel id".into());
-        }
-
-        let child = Command::new(exe)
-            .arg("--type=network")
-            .arg(format!("--channel-id={}", channel_id))
-            .spawn()
-            .map_err(|e| format!("Failed to spawn network process: {}", e))?;
-
-        *network = Some(ChildProcess {
-            _child: child,
-            channel_id: channel_id.to_string(),
-        });
-
-        Ok(())
-    }
-
     /// Shutdown all processes
     pub async fn shutdown(&self) {
         info!("Shutting down all child processes");
@@ -372,18 +282,6 @@ impl ProcessManager {
         let mut renderers = self.renderers.lock().await;
         for (tab_id, mut process) in renderers.drain() {
             debug!("Terminating renderer for tab {}", tab_id.0);
-            let _ = process._child.kill();
-        }
-
-        // Terminate GPU process
-        if let Some(mut process) = self.gpu_process.lock().await.take() {
-            debug!("Terminating GPU process");
-            let _ = process._child.kill();
-        }
-
-        // Terminate network process
-        if let Some(mut process) = self.network_process.lock().await.take() {
-            debug!("Terminating network process");
             let _ = process._child.kill();
         }
     }

@@ -114,23 +114,3 @@ pub struct Response {
     pub body: Vec<u8>,
 }
 
-/// Network process (runs in child process)
-pub struct NetworkProcess {
-    _channel_id: String,
-}
-
-impl NetworkProcess {
-    pub async fn new(channel_id: &str) -> Self {
-        info!("Network process initializing with channel: {}", channel_id);
-        NetworkProcess {
-            _channel_id: channel_id.to_string(),
-        }
-    }
-
-    pub async fn run(&self) {
-        info!("Network process running on channel {}", self._channel_id);
-        // ponytail: subprocess IPC bootstrap not wired yet.
-        // See spawn_renderer_process for IpcOneShotServer pattern.
-        std::future::pending::<()>().await;
-    }
-}
